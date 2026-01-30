@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>聊天室 - 现代化即时通讯</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- 登录页面 -->
+  <div id="auth-page" class="auth-page">
+    <div class="auth-container">
+      <div class="auth-card">
+        <div class="auth-logo">
+          <svg width="60" height="60" viewBox="0 0 60 60" fill="none">
+            <rect width="60" height="60" rx="15" fill="url(#gradient)"/>
+            <path d="M20 30C20 24.4772 24.4772 20 30 20C35.5228 20 40 24.4772 40 30C40 32.7614 38.8807 35.2614 37.0711 37.0711" stroke="white" stroke-width="3" stroke-linecap="round"/>
+            <circle cx="25" cy="30" r="2" fill="white"/>
+            <circle cx="30" cy="30" r="2" fill="white"/>
+            <circle cx="35" cy="30" r="2" fill="white"/>
+            <defs>
+              <linearGradient id="gradient" x1="0" y1="0" x2="60" y2="60">
+                <stop offset="0%" stop-color="#007AFF"/>
+                <stop offset="100%" stop-color="#5856D6"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <h1 class="auth-title">欢迎回来</h1>
+        <p class="auth-subtitle">登录以继续对话</p>
+        
+        <!-- 登录表单 -->
+        <form id="login-form" class="auth-form">
+          <div class="form-group">
+            <label>用户名</label>
+            <input type="text" id="login-username" placeholder="请输入用户名" required>
+          </div>
+          <div class="form-group">
+            <label>密码</label>
+            <input type="password" id="login-password" placeholder="请输入密码" required>
+          </div>
+          <div class="form-footer">
+            <a href="#" id="forgot-password-link" class="forgot-link">忘记密码?</a>
+          </div>
+          <button type="submit" class="btn-primary">登录</button>
+        </form>
+
+        <!-- 注册表单 -->
+        <form id="register-form" class="auth-form" style="display: none;">
+          <div class="form-group">
+            <label>用户名</label>
+            <input type="text" id="register-username" placeholder="选择一个用户名" required>
+          </div>
+          <div class="form-group">
+            <label>邮箱</label>
+            <input type="email" id="register-email" placeholder="your@email.com" required>
+          </div>
+          <div class="form-group">
+            <label>密码</label>
+            <input type="password" id="register-password" placeholder="至少6位字符" required>
+          </div>
+          <button type="submit" class="btn-primary">注册</button>
+        </form>
+
+        <div class="auth-switch">
+          <span id="auth-switch-text">还没有账号? </span>
+          <a href="#" id="toggle-auth">立即注册</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 忘记密码页面 -->
+  <div id="forgot-password-page" class="auth-page" style="display: none;">
+    <div class="auth-container">
+      <div class="auth-card">
+        <div class="auth-logo">
+          <svg width="60" height="60" viewBox="0 0 60 60" fill="none">
+            <rect width="60" height="60" rx="15" fill="url(#gradient2)"/>
+            <path d="M30 20V30L35 35" stroke="white" stroke-width="3" stroke-linecap="round"/>
+            <circle cx="30" cy="30" r="12" stroke="white" stroke-width="3"/>
+            <defs>
+              <linearGradient id="gradient2" x1="0" y1="0" x2="60" y2="60">
+                <stop offset="0%" stop-color="#FF9500"/>
+                <stop offset="100%" stop-color="#FF2D55"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <h1 class="auth-title">重置密码</h1>
+        <p class="auth-subtitle">输入注册时的邮箱地址</p>
+        
+        <form id="forgot-password-form" class="auth-form">
+          <div class="form-group">
+            <label>邮箱地址</label>
+            <input type="email" id="forgot-email" placeholder="your@email.com" required>
+          </div>
+          <button type="submit" class="btn-primary">发送重置链接</button>
+        </form>
+
+        <div class="auth-switch">
+          <a href="#" id="back-to-login">返回登录</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 主应用页面 -->
+  <div id="app-page" class="app-page" style="display: none;">
+    <!-- 侧边栏 -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="user-info">
+          <img id="current-user-avatar" class="user-avatar" src="" alt="">
+          <div class="user-details">
+            <div id="current-username" class="username">用户名</div>
+            <div class="user-status online">在线</div>
+          </div>
+        </div>
+        <button id="logout-btn" class="icon-btn" title="退出登录">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M3 3C3 1.89543 3.89543 1 5 1H9C10.1046 1 11 1.89543 11 3V5H9V3H5V17H9V15H11V17C11 18.1046 10.1046 19 9 19H5C3.89543 19 3 18.1046 3 17V3Z"/>
+            <path d="M13.2929 6.29289C13.6834 5.90237 14.3166 5.90237 14.7071 6.29289L18.7071 10.2929C19.0976 10.6834 19.0976 11.3166 18.7071 11.7071L14.7071 15.7071C14.3166 16.0976 13.6834 16.0976 13.2929 15.7071C12.9024 15.3166 12.9024 14.6834 13.2929 14.2929L15.5858 12H7C6.44772 12 6 11.5523 6 11C6 10.4477 6.44772 10 7 10H15.5858L13.2929 7.70711C12.9024 7.31658 12.9024 6.68342 13.2929 6.29289Z"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="sidebar-actions">
+        <button id="create-group-btn" class="btn-secondary">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 1C8.55228 1 9 1.44772 9 2V7H14C14.5523 7 15 7.44772 15 8C15 8.55228 14.5523 9 14 9H9V14C9 14.5523 8.55228 15 8 15C7.44772 15 7 14.5523 7 14V9H2C1.44772 9 1 8.55228 1 8C1 7.44772 1.44772 7 2 7H7V2C7 1.44772 7.44772 1 8 1Z"/>
+          </svg>
+          创建群组
+        </button>
+        <button id="join-group-btn" class="btn-secondary">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M11 1.5C11 0.671573 11.6716 0 12.5 0C13.3284 0 14 0.671573 14 1.5C14 2.32843 13.3284 3 12.5 3C11.6716 3 11 2.32843 11 1.5Z"/>
+            <path d="M3.5 3C4.32843 3 5 2.32843 5 1.5C5 0.671573 4.32843 0 3.5 0C2.67157 0 2 0.671573 2 1.5C2 2.32843 2.67157 3 3.5 3Z"/>
+            <path d="M8 3C8.82843 3 9.5 2.32843 9.5 1.5C9.5 0.671573 8.82843 0 8 0C7.17157 0 6.5 0.671573 6.5 1.5C6.5 2.32843 7.17157 3 8 3Z"/>
+            <path d="M1 5.5C1 4.67157 1.67157 4 2.5 4H13.5C14.3284 4 15 4.67157 15 5.5V13.5C15 14.3284 14.3284 15 13.5 15H2.5C1.67157 15 1 14.3284 1 13.5V5.5Z"/>
+          </svg>
+          加入群组
+        </button>
+      </div>
+
+      <div class="groups-list" id="groups-list">
+        <div class="groups-list-header">群组列表</div>
+        <div id="groups-container"></div>
+      </div>
+    </aside>
+
+    <!-- 主内容区 -->
+    <main class="main-content">
+      <!-- 欢迎屏幕 -->
+      <div id="welcome-screen" class="welcome-screen">
+        <div class="welcome-content">
+          <svg width="120" height="120" viewBox="0 0 120 120" fill="none">
+            <circle cx="60" cy="60" r="60" fill="url(#welcome-gradient)"/>
+            <path d="M40 60C40 48.9543 48.9543 40 60 40C71.0457 40 80 48.9543 80 60C80 65.5228 77.7614 70.5228 74.1421 74.1421" stroke="white" stroke-width="6" stroke-linecap="round"/>
+            <circle cx="50" cy="60" r="4" fill="white"/>
+            <circle cx="60" cy="60" r="4" fill="white"/>
+            <circle cx="70" cy="60" r="4" fill="white"/>
+            <defs>
+              <linearGradient id="welcome-gradient" x1="0" y1="0" x2="120" y2="120">
+                <stop offset="0%" stop-color="#007AFF"/>
+                <stop offset="100%" stop-color="#5856D6"/>
+              </linearGradient>
+            </defs>
+          </svg>
+          <h2>选择一个群组开始聊天</h2>
+          <p>在左侧选择群组或创建新的群组</p>
+        </div>
+      </div>
+
+      <!-- 聊天区域 -->
+      <div id="chat-area" class="chat-area" style="display: none;">
+        <!-- 聊天头部 -->
+        <div class="chat-header">
+          <div class="chat-header-info">
+            <h2 id="group-name" class="group-name">群组名称</h2>
+            <div id="group-members-count" class="group-members-count">0 成员</div>
+          </div>
+          <div class="chat-header-actions">
+            <button id="group-info-btn" class="icon-btn" title="群组信息">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M10 2C10.5523 2 11 2.44772 11 3V3.5C11 4.05228 10.5523 4.5 10 4.5C9.44772 4.5 9 4.05228 9 3.5V3C9 2.44772 9.44772 2 10 2Z"/>
+                <path d="M10 8C10.5523 8 11 8.44772 11 9V16C11 16.5523 10.5523 17 10 17C9.44772 17 9 16.5523 9 16V9C9 8.44772 9.44772 8 10 8Z"/>
+                <circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="2" fill="none"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- 群公告 -->
+        <div id="announcement-banner" class="announcement-banner" style="display: none;">
+          <div class="announcement-icon">📢</div>
+          <div id="announcement-text" class="announcement-text"></div>
+        </div>
+
+        <!-- 置顶消息 -->
+        <div id="pinned-messages-banner" class="pinned-messages-banner" style="display: none;">
+          <div class="pinned-icon">📌</div>
+          <div id="pinned-messages-content" class="pinned-messages-content"></div>
+        </div>
+
+        <!-- 消息列表 -->
+        <div class="messages-container" id="messages-container">
+          <div id="messages-list"></div>
+          <div id="typing-indicator" class="typing-indicator" style="display: none;">
+            <span id="typing-username"></span> 正在输入
+            <span class="typing-dots">
+              <span>.</span><span>.</span><span>.</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- 引用消息预览 -->
+        <div id="reply-preview" class="reply-preview" style="display: none;">
+          <div class="reply-preview-content">
+            <div class="reply-preview-text">
+              <strong id="reply-username"></strong>
+              <p id="reply-content"></p>
+            </div>
+            <button id="cancel-reply" class="cancel-reply">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- 消息输入区 -->
+        <div class="message-input-container">
+          <div class="message-input-wrapper">
+            <button id="image-btn" class="icon-btn" title="发送图片">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M3 3C3 1.89543 3.89543 1 5 1H15C16.1046 1 17 1.89543 17 3V17C17 18.1046 16.1046 19 15 19H5C3.89543 19 3 18.1046 3 17V3Z" stroke="currentColor" stroke-width="2" fill="none"/>
+                <circle cx="7" cy="7" r="2" fill="currentColor"/>
+                <path d="M3 13L7 9L11 13L15 9L17 11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+              </svg>
+            </button>
+            <button id="emoji-btn" class="icon-btn" title="表情">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                <circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="2" fill="none"/>
+                <circle cx="7" cy="8" r="1.5" fill="currentColor"/>
+                <circle cx="13" cy="8" r="1.5" fill="currentColor"/>
+                <path d="M6 12C6 12 7.5 14 10 14C12.5 14 14 12 14 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
+              </svg>
+            </button>
+            <input type="file" id="image-input" accept="image/*" style="display: none;">
+            <textarea 
+              id="message-input" 
+              class="message-input" 
+              placeholder="输入消息..."
+              rows="1"
+            ></textarea>
+            <button id="send-btn" class="send-btn">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M2.01 2.01C1.65 1.65 1 1.9 1 2.42V7.58C1 7.89 1.22 8.16 1.52 8.24L9 10L1.52 11.76C1.22 11.84 1 12.11 1 12.42V17.58C1 18.1 1.65 18.35 2.01 17.99L18.99 11.5C19.42 11.28 19.42 10.72 18.99 10.5L2.01 2.01Z"/>
+              </svg>
+            </button>
+          </div>
+          
+          <!-- Emoji 选择器 -->
+          <div id="emoji-picker" class="emoji-picker" style="display: none;">
+            <div class="emoji-grid">
+              😀 😃 😄 😁 😆 😅 😂 🤣 😊 😇
+              🙂 🙃 😉 😌 😍 🥰 😘 😗 😙 😚
+              😋 😛 😝 😜 🤪 🤨 🧐 🤓 😎 🤩
+              🥳 😏 😒 😞 😔 😟 😕 🙁 😣 😖
+              😫 😩 🥺 😢 😭 😤 😠 😡 🤬 🤯
+              😳 🥵 🥶 😱 😨 😰 😥 😓 🤗 🤔
+              🤭 🤫 🤥 😶 😐 😑 😬 🙄 😯 😦
+              😧 😮 😲 🥱 😴 🤤 😪 😵 🤐 🥴
+              🤢 🤮 🤧 😷 🤒 🤕 🤑 🤠 👍 👎
+              👋 🤚 🖐 ✋ 🖖 👌 🤏 ✌️ 🤞 🤟
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- 右侧面板 -->
+    <aside id="right-panel" class="right-panel" style="display: none;">
+      <div class="panel-header">
+        <h3>群组信息</h3>
+        <button id="close-panel" class="icon-btn">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M4.646 4.646a.5.5 0 0 1 .708 0L10 9.293l4.646-4.647a.5.5 0 0 1 .708.708L10.707 10l4.647 4.646a.5.5 0 0 1-.708.708L10 10.707l-4.646 4.647a.5.5 0 0 1-.708-.708L9.293 10 4.646 5.354a.5.5 0 0 1 0-.708z"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="panel-content">
+        <!-- 群组详情 -->
+        <div class="panel-section">
+          <div class="panel-section-title">群组详情</div>
+          <div class="group-detail-item">
+            <span class="detail-label">群组 ID</span>
+            <span id="detail-group-id" class="detail-value"></span>
+          </div>
+          <div class="group-detail-item">
+            <span class="detail-label">创建时间</span>
+            <span id="detail-created-at" class="detail-value"></span>
+          </div>
+          <div class="group-detail-item">
+            <span class="detail-label">群组描述</span>
+            <p id="detail-description" class="detail-description"></p>
+          </div>
+        </div>
+
+        <!-- 管理员操作 -->
+        <div id="admin-actions" class="panel-section" style="display: none;">
+          <div class="panel-section-title">管理操作</div>
+          <button id="edit-announcement-btn" class="panel-btn">
+            📢 编辑群公告
+          </button>
+          <button id="toggle-mute-all-btn" class="panel-btn">
+            🔇 <span id="mute-all-text">开启全员禁言</span>
+          </button>
+        </div>
+
+        <!-- 成员列表 -->
+        <div class="panel-section">
+          <div class="panel-section-title">
+            成员列表 (<span id="members-count">0</span>)
+          </div>
+          <div id="members-list" class="members-list"></div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- 模态框 -->
+  <div id="modal-overlay" class="modal-overlay" style="display: none;">
+    <!-- 创建群组 -->
+    <div id="create-group-modal" class="modal" style="display: none;">
+      <div class="modal-content">
+        <h3>创建新群组</h3>
+        <form id="create-group-form">
+          <div class="form-group">
+            <label>群组名称</label>
+            <input type="text" id="new-group-name" placeholder="输入群组名称" required>
+          </div>
+          <div class="form-group">
+            <label>群组描述</label>
+            <textarea id="new-group-description" placeholder="描述一下这个群组..." rows="3"></textarea>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn-secondary" onclick="closeModal()">取消</button>
+            <button type="submit" class="btn-primary">创建</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- 加入群组 -->
+    <div id="join-group-modal" class="modal" style="display: none;">
+      <div class="modal-content">
+        <h3>加入群组</h3>
+        <form id="join-group-form">
+          <div class="form-group">
+            <label>群组 ID</label>
+            <input type="text" id="join-group-id" placeholder="输入7位数字群组ID" required>
+          </div>
+          <div id="group-preview" class="group-preview" style="display: none;">
+            <div class="group-preview-info">
+              <strong id="preview-group-name"></strong>
+              <p id="preview-group-description"></p>
+              <small><span id="preview-member-count"></span> 成员</small>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn-secondary" onclick="closeModal()">取消</button>
+            <button type="button" id="search-group-btn" class="btn-secondary">搜索</button>
+            <button type="submit" id="join-group-submit-btn" class="btn-primary" style="display: none;">加入</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- 编辑公告 -->
+    <div id="edit-announcement-modal" class="modal" style="display: none;">
+      <div class="modal-content">
+        <h3>编辑群公告</h3>
+        <form id="edit-announcement-form">
+          <div class="form-group">
+            <label>公告内容</label>
+            <textarea id="announcement-input" placeholder="输入群公告..." rows="4"></textarea>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn-secondary" onclick="closeModal()">取消</button>
+            <button type="submit" class="btn-primary">保存</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>
