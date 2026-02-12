@@ -8,6 +8,63 @@ let replyToMessage = null;
 let typingTimeout = null;
 let onlineUsers = new Set();
 
+// ============ 多标签页状态同步 ============
+const TabSync = (() => {
+  const channelName = 'chatroom_sync';
+  const hasBroadcastChannel = typeof BroadcastChannel !== 'undefined';
+  const bc = hasBroadcastChannel ? new BroadcastChannel(channelName) : null;
+
+  function publish(payload) {
+    const message = { ...payload, ts: Date.now() };
+    if (bc) {
+      bc.postMessage(message);
+      return;
+    }
+    // fallback: 使用 storage 事件
+    try {
+      localStorage.setItem(channelName, JSON.stringify(message));
+      localStorage.removeItem(channelName);
+    } catch (_) {}
+  }
+
+function handleMessage(message) {
+    if (!message || !message.type) return;
+
+    if (message.type === 'logout') {
+      // 其它标签页退出后，本标签页也退出
+      if (getToken()) {
+        logout({ broadcast: false });
+      }
+      return;
+    }
+
+    if (message.type === 'login' && message.token && message.user) {
+      // 其它标签页登录后，本标签页同步登录（若当前未登录）
+      if (!getToken()) {
+        setToken(message.token);
+        setUser(message.user);
+        currentUser = message.user;
+        connectSocket();
+        showPage('app-page');
+        loadGroups();
+      }
+    }
+  }
+
+  if (bc) {
+    bc.onmessage = (e) => handleMessage(e.data);
+  } else {
+    window.addEventListener('storage', (e) => {
+      if (e.key !== channelName || !e.newValue) return;
+      try {
+        handleMessage(JSON.parse(e.newValue));
+      } catch (_) {}
+    });
+  }
+
+  return { publish };
+})();
+
 // ============ 工具函数 ============
 
 function getToken() {
@@ -222,6 +279,7 @@ document.getElementById('register-form')?.addEventListener('submit', async (e) =
 
     setToken(data.token);
     setUser(data.user);
+    TabSync.publish({ type: 'login', token: data.token, user: data.user });
     currentUser = data.user;
 
     connectSocket();
@@ -247,6 +305,7 @@ document.getElementById('login-form')?.addEventListener('submit', async (e) => {
 
     setToken(data.token);
     setUser(data.user);
+    TabSync.publish({ type: 'login', token: data.token, user: data.user });
     currentUser = data.user;
 
     connectSocket();
@@ -329,10 +388,13 @@ document.getElementById('logout-btn')?.addEventListener('click', () => {
   }
 });
 
-function logout() {
+function logout({ broadcast = true } = {}) {
   disconnectSocket();
   removeToken();
   removeUser();
+  if (broadcast) {
+    TabSync.publish({ type: 'logout' });
+  }
   currentUser = null;
   currentGroupId = null;
   currentGroup = null;
@@ -456,7 +518,7 @@ function addMessageToUI(message, scroll = true) {
       replyHTML = `
         <div class="message-reply-to" onclick="scrollToMessage('${message.replyTo}')">
           <strong>${replyToMsg.username}</strong>
-          <p>${replyToMsg.type === 'image' ? '图片' : (replyToMsg.content || '')}</p>
+          <p>${replyToMsg.type === 'image' ? '图片' : (replyToMsg.type === 'video' ? '视频' : (replyToMsg.content || ''))}</p>
         </div>
       `;
     }
@@ -465,6 +527,12 @@ function addMessageToUI(message, scroll = true) {
   let contentHTML = '';
   if (message.type === 'image') {
     contentHTML = `<img src="${message.imageUrl}" class="message-image" alt="图片" onclick="window.open('${message.imageUrl}', '_blank')">`;
+  } else if (message.type === 'video') {
+    contentHTML = `
+      <video class="message-video" controls preload="metadata" src="${message.imageUrl}">
+        您的浏览器不支持 video 标签
+      </video>
+    `;
   } else {
     contentHTML = `<div class="message-text">${escapeHtml(message.content)}</div>`;
   }
@@ -592,7 +660,8 @@ function replyToMsg(messageId) {
   replyToMessage = messageId;
 
   document.getElementById('reply-username').textContent = message.username;
-  document.getElementById('reply-content').textContent = message.type === 'image' ? '图片' : message.content;
+  document.getElementById('reply-content').textContent =
+    message.type === 'image' ? '图片' : (message.type === 'video' ? '视频' : message.content);
   document.getElementById('reply-preview').style.display = 'block';
 
   document.getElementById('message-input').focus();
@@ -609,7 +678,7 @@ function cancelReply() {
 
 function editMessage(messageId) {
   const message = findMessageById(messageId);
-  if (!message || message.type === 'image') return;
+  if (!message || message.type !== 'text') return;
 
   const newContent = prompt('编辑消息:', message.content);
   if (newContent && newContent.trim() && newContent !== message.content) {
@@ -694,7 +763,7 @@ function sendMessage() {
   }
 }
 
-// ============ 图片上传 ============
+// ============ 图片/视频上传 ============
 
 const imageBtn = document.getElementById('image-btn');
 const imageInput = document.getElementById('image-input');
@@ -707,7 +776,7 @@ imageInput?.addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
 
-  await uploadAndSendImage(file);
+  await uploadAndSendMedia(file);
   imageInput.value = '';
 });
 
@@ -721,29 +790,30 @@ messageInput?.addEventListener('paste', async (e) => {
       e.preventDefault();
       const file = item.getAsFile();
       if (file) {
-        await uploadAndSendImage(file);
+        await uploadAndSendMedia(file);
       }
       break;
     }
   }
 });
 
-async function uploadAndSendImage(file) {
+async function uploadAndSendMedia(file) {
   if (!socket || !currentGroupId) return;
 
-  // 检查文件大小
-  if (file.size > 5 * 1024 * 1024) {
-    showToast('图片大小不能超过 5MB', 'error');
+  const isVideo = file.type === 'video/mp4' || file.name.toLowerCase().endsWith('.mp4');
+  const maxBytes = isVideo ? 20 * 1024 * 1024 : 5 * 1024 * 1024;
+  if (file.size > maxBytes) {
+    showToast(isVideo ? '视频大小不能超过 20MB' : '图片大小不能超过 5MB', 'error');
     return;
   }
 
   try {
-    // 压缩图片
-    const compressedFile = await compressImage(file);
+    const uploadFile = isVideo ? file : await compressImage(file);
 
-    // 上传图片
+    // 上传文件
     const formData = new FormData();
-    formData.append('image', compressedFile);
+    formData.append('file', uploadFile);
+    formData.append('groupId', currentGroupId);
 
     const response = await fetch(`${API_URL}/api/upload`, {
       method: 'POST',
@@ -759,19 +829,19 @@ async function uploadAndSendImage(file) {
 
     const data = await response.json();
 
-    // 发送图片消息
+    // 发送媒体消息
     socket.emit('send_message', {
       groupId: currentGroupId,
-      type: 'image',
+      type: isVideo ? 'video' : 'image',
       imageUrl: data.url,
-      content: '[图片]',
+      content: isVideo ? '[视频]' : '[图片]',
       replyTo: replyToMessage
     });
 
     cancelReply();
   } catch (error) {
-    console.error('上传图片失败:', error);
-    showToast('上传图片失败', 'error');
+    console.error('上传失败:', error);
+    showToast('上传失败', 'error');
   }
 }
 
@@ -879,7 +949,7 @@ function updatePinnedMessages(pinnedMessageIds) {
   if (pinnedMessageIds && pinnedMessageIds.length > 0) {
     const messages = pinnedMessageIds.map(id => findMessageById(id)).filter(Boolean);
     if (messages.length > 0) {
-      const text = messages.map(m => `${m.username}: ${m.type === 'image' ? '[图片]' : m.content}`).join(' | ');
+      const text = messages.map(m => `${m.username}: ${m.type === 'image' ? '[图片]' : (m.type === 'video' ? '[视频]' : m.content)}`).join(' | ');
       content.textContent = text;
       banner.style.display = 'flex';
       
@@ -933,14 +1003,39 @@ function displayMembers(members) {
       roleText = '管理员';
     }
 
+    const isOwner = currentUser && currentGroup.ownerId === currentUser.id;
+    const canManageAdmin = isOwner && member.id !== currentGroup.ownerId;
+    const isMemberAdmin = currentGroup.admins.includes(member.id);
+
     memberEl.innerHTML = `
       <img src="${member.avatar}" class="member-avatar" alt="${member.username}">
       <div class="member-info">
         <div class="member-name">${escapeHtml(member.username)}</div>
         ${roleText ? `<div class="member-role">${roleText}</div>` : ''}
       </div>
+      ${canManageAdmin ? `<button class="member-action-btn" data-action="toggle-admin">${isMemberAdmin ? '取消管理员' : '设为管理员'}</button>` : ''}
       <div class="member-status ${member.isOnline ? 'online' : ''}"></div>
     `;
+
+    if (canManageAdmin) {
+      memberEl.querySelector('[data-action="toggle-admin"]')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        try {
+          const action = isMemberAdmin ? 'remove' : 'add';
+          const label = isMemberAdmin ? '取消管理员' : '设为管理员';
+          if (!confirm(`确定要${label}：${member.username} 吗？`)) return;
+
+          await apiRequest(`/api/groups/${currentGroup.id}/admins`, {
+            method: 'PUT',
+            body: JSON.stringify({ userId: member.id, action })
+          });
+          await loadGroupDetails(currentGroup.id);
+          showToast('操作成功', 'success');
+        } catch (err) {
+          showToast(err.message || '操作失败', 'error');
+        }
+      });
+    }
 
     container.appendChild(memberEl);
   });
@@ -1177,4 +1272,3 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
-

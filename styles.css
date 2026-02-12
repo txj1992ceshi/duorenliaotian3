@@ -714,6 +714,14 @@ body {
   box-shadow: var(--shadow-lg);
 }
 
+.message-video {
+  max-width: 100%;
+  max-height: 400px;
+  border-radius: var(--radius-md);
+  margin-top: 8px;
+  background: #000;
+}
+
 .message-actions {
   display: flex;
   gap: 4px;
@@ -1095,6 +1103,23 @@ body {
 
 .member-status.online {
   background: var(--success-color);
+}
+
+.member-action-btn {
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: var(--transition);
+  flex-shrink: 0;
+}
+
+.member-action-btn:hover {
+  background: var(--bg-secondary);
+  border-color: var(--text-tertiary);
 }
 
 /* 模态框 */

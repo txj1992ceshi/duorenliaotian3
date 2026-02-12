@@ -61,7 +61,7 @@ JWT_SECRET='$(node -e "console.log(require('crypto').randomBytes(32).toString('h
 NODE_ENV=production' | sudo tee .env
 
 # 6. 启动应用
-pm2 start server/server.js --name chat-room
+pm2 start server.js --name duorenliaotian3
 pm2 startup
 pm2 save
 
@@ -141,9 +141,9 @@ npm start        # 启动生产服务器
 
 ```bash
 pm2 status           # 查看应用状态
-pm2 logs chat-room   # 查看日志
-pm2 restart chat-room # 重启应用
-pm2 stop chat-room    # 停止应用
+pm2 logs duorenliaotian3   # 查看日志
+pm2 restart duorenliaotian3 # 重启应用
+pm2 stop duorenliaotian3    # 停止应用
 ```
 
 ### 更新应用
@@ -152,7 +152,7 @@ pm2 stop chat-room    # 停止应用
 cd /var/www/chat-room
 sudo git pull
 sudo npm install --production
-pm2 restart chat-room
+pm2 restart duorenliaotian3
 ```
 
 ---
@@ -170,7 +170,7 @@ pm2 status
 sudo systemctl status nginx
 
 # 查看日志
-pm2 logs chat-room
+pm2 logs duorenliaotian3
 ```
 
 **Q: Socket.IO 无法连接?**

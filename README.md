@@ -151,7 +151,7 @@ nano .env
 # JWT_SECRET=your-production-secret-key
 
 # 使用 PM2 启动
-pm2 start server/server.js --name chat-room
+pm2 start server.js --name duorenliaotian3
 
 # 设置开机自启
 pm2 startup
@@ -242,16 +242,16 @@ sudo certbot renew --dry-run
 pm2 status
 
 # 查看日志
-pm2 logs chat-room
+pm2 logs duorenliaotian3
 
 # 重启应用
-pm2 restart chat-room
+pm2 restart duorenliaotian3
 
 # 停止应用
-pm2 stop chat-room
+pm2 stop duorenliaotian3
 
 # 删除应用
-pm2 delete chat-room
+pm2 delete duorenliaotian3
 ```
 
 ### 更新应用
@@ -259,7 +259,7 @@ pm2 delete chat-room
 cd /var/www/chat-room
 git pull
 npm install --production
-pm2 restart chat-room
+pm2 restart duorenliaotian3
 ```
 
 ## 🔧 配置说明
@@ -317,7 +317,7 @@ pm2 restart chat-room
 ### 图片上传失败
 - 检查 `server/uploads` 目录权限
 - 确认图片大小不超过 5MB
-- 查看服务器日志: `pm2 logs chat-room`
+- 查看服务器日志: `pm2 logs duorenliaotian3`
 
 ### 忘记密码功能不工作
 - 在生产环境需要配置 SMTP 邮件服务
