@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
@@ -7,654 +8,285 @@ const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const mongoose = require('mongoose');
 
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }
+  cors: { origin: "*", methods: ["GET","POST"] }
 });
 
-// 配置
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/chat-room';
+const JWT_SECRET = process.env.JWT_SECRET || 'replace-this-in-production';
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this-in-production';
+const MAX_MESSAGES = parseInt(process.env.MAX_MESSAGES || '100000', 10);
 
-// 中间件
+// connect to MongoDB
+mongoose.connect(MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+  .then(() => console.log('✅ MongoDB 已连接'))
+  .catch(err => {
+    console.error('❌ MongoDB 连接失败:', err);
+    process.exit(1);
+  });
+
+// models & middleware
+const User = require('./models/User');
+const Group = require('./models/Group');
+const Message = require('./models/Message');
+const { generateToken, authenticateToken } = require('./middleware/auth');
+const isAdmin = require('./middleware/isAdmin');
+
+// middleware
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-app.use(express.static(path.join(__dirname, '../public')));
+app.use(express.static(path.join(__dirname, 'public')));
 
-// 创建上传目录
+// create uploads dir for local/dev usage
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// 文件上传配置
+// multer (development only - production should forward to external image host)
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadsDir);
-  },
+  destination: (req, file, cb) => cb(null, uploadsDir),
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     cb(null, uniqueSuffix + path.extname(file.originalname));
   }
 });
-
 const upload = multer({
   storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|gif|webp/;
+    const allowedTypes = /jpeg|jpg|png|gif|webp|mp4/;
     const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
     const mimetype = allowedTypes.test(file.mimetype);
-    if (mimetype && extname) {
-      return cb(null, true);
-    }
-    cb(new Error('只支持图片文件!'));
+    if (mimetype && extname) return cb(null, true);
+    cb(new Error('只支持图片/视频文件!'));
   }
 });
 
-// 内存数据库 (生产环境应使用真实数据库)
-const db = {
-  users: [],
-  groups: [],
-  messages: [],
-  resetTokens: new Map() // 存储密码重置令牌
-};
+// socket online map
+const onlineUsers = new Map();
 
-// 辅助函数
+// helper: generate group id
 function generateGroupId() {
   return Math.floor(1000000 + Math.random() * 9000000).toString();
 }
 
-function generateToken(userId) {
-  return jwt.sign({ userId }, JWT_SECRET, { expiresIn: '7d' });
-}
+// message creation + cleanup
+async function createMessageAndCleanup(payload) {
+  const msg = await Message.create(payload);
 
-function verifyToken(token) {
-  try {
-    return jwt.verify(token, JWT_SECRET);
-  } catch (error) {
-    return null;
-  }
-}
-
-// 认证中间件
-function authenticateToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({ error: '需要登录' });
+  const total = await Message.estimatedDocumentCount();
+  if (total > MAX_MESSAGES) {
+    const exceed = total - MAX_MESSAGES;
+    const toDelete = await Message.find().sort({ createdAt: 1 }).limit(exceed).select('_id');
+    const ids = toDelete.map(d => d._id);
+    await Message.deleteMany({ _id: { $in: ids } });
+    console.log(`消息清理：删除 ${ids.length} 条最旧消息`);
   }
 
-  const decoded = verifyToken(token);
-  if (!decoded) {
-    return res.status(403).json({ error: '无效的令牌' });
-  }
-
-  req.userId = decoded.userId;
-  next();
+  return msg;
 }
 
-// ============ API 路由 ============
+// =========== API ===========
 
-// 用户注册
+// register
 app.post('/api/register', async (req, res) => {
   try {
     const { username, password, email } = req.body;
+    if (!username || !password || !email) return res.status(400).json({ error: '请填写所有必填项' });
 
-    if (!username || !password || !email) {
-      return res.status(400).json({ error: '请填写所有必填项' });
+    const existing = await User.findOne({ $or: [{ username }, { email }] });
+    if (existing) return res.status(400).json({ error: '用户名或邮箱已存在' });
+
+    const hashed = await bcrypt.hash(password, 10);
+    const avatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(username)}`;
+    let user = await User.create({ username, email, password: hashed, avatar });
+
+    // 自动把首个注册用户设为 admin（如果数据库当前没有 admin）
+    const adminCount = await User.countDocuments({ role: 'admin' });
+    if (adminCount === 0) {
+      user.role = 'admin';
+      await user.save();
+      console.log('首位注册用户已自动设为 admin:', user.username);
     }
 
-    // 验证邮箱格式
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({ error: '邮箱格式不正确' });
-    }
-
-    // 检查用户名是否已存在
-    if (db.users.find(u => u.username === username)) {
-      return res.status(400).json({ error: '用户名已存在' });
-    }
-
-    // 检查邮箱是否已存在
-    if (db.users.find(u => u.email === email)) {
-      return res.status(400).json({ error: '邮箱已被使用' });
-    }
-
-    // 密码加密
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const user = {
-      id: Date.now().toString(),
-      username,
-      password: hashedPassword,
-      email,
-      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`,
-      createdAt: new Date().toISOString(),
-      groups: []
-    };
-
-    db.users.push(user);
-
-    const token = generateToken(user.id);
-
+    const token = generateToken(user._id);
     res.json({
       token,
-      user: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        avatar: user.avatar,
-        groups: user.groups
-      }
+      user: { id: user._id, username: user.username, email: user.email, avatar: user.avatar, role: user.role }
     });
-  } catch (error) {
-    console.error('注册错误:', error);
+  } catch (err) {
+    console.error('注册错误:', err);
     res.status(500).json({ error: '注册失败' });
   }
 });
 
-// 用户登录
+// login
 app.post('/api/login', async (req, res) => {
   try {
     const { username, password } = req.body;
+    const user = await User.findOne({ username });
+    if (!user) return res.status(401).json({ error: '用户名或密码错误' });
 
-    const user = db.users.find(u => u.username === username);
-    if (!user) {
-      return res.status(401).json({ error: '用户名或密码错误' });
-    }
+    const ok = await bcrypt.compare(password, user.password);
+    if (!ok) return res.status(401).json({ error: '用户名或密码错误' });
 
-    const isValidPassword = await bcrypt.compare(password, user.password);
-    if (!isValidPassword) {
-      return res.status(401).json({ error: '用户名或密码错误' });
-    }
-
-    const token = generateToken(user.id);
-
+    const token = generateToken(user._id);
     res.json({
       token,
-      user: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        avatar: user.avatar,
-        groups: user.groups
-      }
+      user: { id: user._id, username: user.username, email: user.email, avatar: user.avatar, role: user.role }
     });
-  } catch (error) {
-    console.error('登录错误:', error);
+  } catch (err) {
+    console.error('登录错误:', err);
     res.status(500).json({ error: '登录失败' });
   }
 });
 
-// 忘记密码 - 发送重置令牌
-app.post('/api/forgot-password', async (req, res) => {
-  try {
-    const { email } = req.body;
-
-    const user = db.users.find(u => u.email === email);
-    if (!user) {
-      // 为了安全,即使用户不存在也返回成功
-      return res.json({ message: '如果邮箱存在,重置链接已发送' });
-    }
-
-    // 生成重置令牌
-    const resetToken = Math.random().toString(36).substring(2, 15);
-    db.resetTokens.set(resetToken, {
-      userId: user.id,
-      expiresAt: Date.now() + 3600000 // 1小时后过期
-    });
-
-    // 在实际生产环境中,这里应该发送邮件
-    // 现在我们只是在控制台打印
-    console.log(`密码重置令牌 for ${email}: ${resetToken}`);
-    console.log(`重置链接: http://localhost:${PORT}/reset-password.html?token=${resetToken}`);
-
-    res.json({
-      message: '如果邮箱存在,重置链接已发送',
-      // 仅用于开发测试
-      devToken: resetToken
-    });
-  } catch (error) {
-    console.error('忘记密码错误:', error);
-    res.status(500).json({ error: '处理失败' });
-  }
+// get current user
+app.get('/api/user/me', authenticateToken, async (req, res) => {
+  const user = req.user;
+  if (!user) return res.status(404).json({ error: '用户不存在' });
+  res.json(user);
 });
 
-// 重置密码
-app.post('/api/reset-password', async (req, res) => {
-  try {
-    const { token, newPassword } = req.body;
-
-    const resetData = db.resetTokens.get(token);
-    if (!resetData || resetData.expiresAt < Date.now()) {
-      return res.status(400).json({ error: '无效或过期的重置令牌' });
-    }
-
-    const user = db.users.find(u => u.id === resetData.userId);
-    if (!user) {
-      return res.status(404).json({ error: '用户不存在' });
-    }
-
-    // 更新密码
-    user.password = await bcrypt.hash(newPassword, 10);
-    db.resetTokens.delete(token);
-
-    res.json({ message: '密码重置成功' });
-  } catch (error) {
-    console.error('重置密码错误:', error);
-    res.status(500).json({ error: '重置失败' });
-  }
-});
-
-// 获取当前用户信息
-app.get('/api/user/me', authenticateToken, (req, res) => {
-  const user = db.users.find(u => u.id === req.userId);
-  if (!user) {
-    return res.status(404).json({ error: '用户不存在' });
-  }
-
-  res.json({
-    id: user.id,
-    username: user.username,
-    email: user.email,
-    avatar: user.avatar,
-    groups: user.groups
-  });
-});
-
-// 创建群组
-app.post('/api/groups', authenticateToken, (req, res) => {
+// create group
+app.post('/api/groups', authenticateToken, async (req, res) => {
   try {
     const { name, description } = req.body;
+    if (!name) return res.status(400).json({ error: '群组名称不能为空' });
 
-    if (!name) {
-      return res.status(400).json({ error: '群组名称不能为空' });
-    }
-
-    const group = {
-      id: generateGroupId(),
+    const gid = generateGroupId();
+    const group = await Group.create({
+      _id: gid,
       name,
       description: description || '',
       ownerId: req.userId,
       admins: [],
-      members: [req.userId],
-      createdAt: new Date().toISOString(),
-      announcement: '',
-      muteAll: false,
-      pinnedMessages: []
-    };
+      members: [req.userId]
+    });
 
-    db.groups.push(group);
-
-    // 更新用户的群组列表
-    const user = db.users.find(u => u.id === req.userId);
-    if (user) {
-      user.groups.push(group.id);
-    }
+    // 更新用户 groups（字符串 id）
+    await User.findByIdAndUpdate(req.userId, { $push: { groups: gid } });
 
     res.json(group);
-  } catch (error) {
-    console.error('创建群组错误:', error);
+  } catch (err) {
+    console.error('创建群组错误:', err);
     res.status(500).json({ error: '创建群组失败' });
   }
 });
 
-// 搜索群组
-app.get('/api/groups/search/:groupId', authenticateToken, (req, res) => {
-  const group = db.groups.find(g => g.id === req.params.groupId);
+// upload (development only)
+app.post('/api/upload', authenticateToken, upload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: '没有文件上传' });
 
-  if (!group) {
-    return res.status(404).json({ error: '群组不存在' });
-  }
-
-  res.json({
-    id: group.id,
-    name: group.name,
-    description: group.description,
-    memberCount: group.members.length
-  });
+  // 提示：生产应将文件转发到图床（Cloudinary / ImgBB 等），并把返回的 URL 存入 Message.imageUrl
+  const fileUrl = `/uploads/${req.file.filename}`;
+  res.json({ url: fileUrl });
 });
 
-// 加入群组
-app.post('/api/groups/:groupId/join', authenticateToken, (req, res) => {
-  const group = db.groups.find(g => g.id === req.params.groupId);
-
-  if (!group) {
-    return res.status(404).json({ error: '群组不存在' });
-  }
-
-  if (group.members.includes(req.userId)) {
-    return res.status(400).json({ error: '您已经是该群组成员' });
-  }
-
-  group.members.push(req.userId);
-
-  const user = db.users.find(u => u.id === req.userId);
-  if (user && !user.groups.includes(group.id)) {
-    user.groups.push(group.id);
-  }
-
-  // 通知群组成员
-  io.to(group.id).emit('member_joined', {
-    groupId: group.id,
-    userId: req.userId,
-    username: user?.username
-  });
-
-  res.json(group);
+// Admin routes
+app.get('/api/admin/users', authenticateToken, isAdmin, async (req, res) => {
+  const users = await User.find().select('-password').lean();
+  res.json(users);
 });
 
-// 获取用户的所有群组
-app.get('/api/groups', authenticateToken, (req, res) => {
-  const user = db.users.find(u => u.id === req.userId);
-  if (!user) {
-    return res.status(404).json({ error: '用户不存在' });
-  }
-
-  const userGroups = db.groups.filter(g => g.members.includes(req.userId));
-  res.json(userGroups);
+app.delete('/api/admin/users/:id', authenticateToken, isAdmin, async (req, res) => {
+  const uid = req.params.id;
+  await User.findByIdAndDelete(uid);
+  await Message.deleteMany({ userId: uid });
+  await Group.updateMany({}, { $pull: { members: mongoose.Types.ObjectId(uid), admins: mongoose.Types.ObjectId(uid) } });
+  res.json({ message: '用户已删除' });
 });
 
-// 获取群组详情
-app.get('/api/groups/:groupId', authenticateToken, (req, res) => {
-  const group = db.groups.find(g => g.id === req.params.groupId);
-
-  if (!group) {
-    return res.status(404).json({ error: '群组不存在' });
-  }
-
-  if (!group.members.includes(req.userId)) {
-    return res.status(403).json({ error: '您不是该群组成员' });
-  }
-
-  // 获取成员信息
-  const membersInfo = group.members.map(memberId => {
-    const user = db.users.find(u => u.id === memberId);
-    return user ? {
-      id: user.id,
-      username: user.username,
-      avatar: user.avatar,
-      isOnline: false // 将通过 Socket.IO 更新
-    } : null;
-  }).filter(Boolean);
-
-  res.json({
-    ...group,
-    membersInfo
-  });
+app.get('/api/admin/stats', authenticateToken, isAdmin, async (req, res) => {
+  const usersCount = await User.countDocuments();
+  const groupsCount = await Group.countDocuments();
+  const messagesCount = await Message.countDocuments();
+  res.json({ usersCount, groupsCount, messagesCount, onlineCount: onlineUsers.size });
 });
 
-// 获取群组消息
-app.get('/api/groups/:groupId/messages', authenticateToken, (req, res) => {
-  const group = db.groups.find(g => g.id === req.params.groupId);
-
-  if (!group) {
-    return res.status(404).json({ error: '群组不存在' });
-  }
-
-  if (!group.members.includes(req.userId)) {
-    return res.status(403).json({ error: '您不是该群组成员' });
-  }
-
-  const messages = db.messages
-    .filter(m => m.groupId === req.params.groupId)
-    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-
-  res.json(messages);
+app.post('/api/admin/messages/cleanup', authenticateToken, isAdmin, async (req, res) => {
+  const total = await Message.countDocuments();
+  if (total <= MAX_MESSAGES) return res.json({ message: '无需清理', total });
+  const exceed = total - MAX_MESSAGES;
+  const toDelete = await Message.find().sort({ createdAt: 1 }).limit(exceed).select('_id');
+  const ids = toDelete.map(d => d._id);
+  await Message.deleteMany({ _id: { $in: ids } });
+  res.json({ message: `已删除 ${ids.length} 条消息`, totalAfter: await Message.countDocuments() });
 });
 
-// 更新群公告
-app.put('/api/groups/:groupId/announcement', authenticateToken, (req, res) => {
-  const group = db.groups.find(g => g.id === req.params.groupId);
-
-  if (!group) {
-    return res.status(404).json({ error: '群组不存在' });
-  }
-
-  // 检查权限
-  if (group.ownerId !== req.userId && !group.admins.includes(req.userId)) {
-    return res.status(403).json({ error: '只有群主和管理员可以修改公告' });
-  }
-
-  group.announcement = req.body.announcement || '';
-
-  io.to(group.id).emit('announcement_updated', {
-    groupId: group.id,
-    announcement: group.announcement
-  });
-
-  res.json({ announcement: group.announcement });
-});
-
-// 全员禁言
-app.put('/api/groups/:groupId/mute-all', authenticateToken, (req, res) => {
-  const group = db.groups.find(g => g.id === req.params.groupId);
-
-  if (!group) {
-    return res.status(404).json({ error: '群组不存在' });
-  }
-
-  if (group.ownerId !== req.userId && !group.admins.includes(req.userId)) {
-    return res.status(403).json({ error: '只有群主和管理员可以设置全员禁言' });
-  }
-
-  group.muteAll = req.body.muteAll;
-
-  io.to(group.id).emit('mute_all_updated', {
-    groupId: group.id,
-    muteAll: group.muteAll
-  });
-
-  res.json({ muteAll: group.muteAll });
-});
-
-// 上传图片
-app.post('/api/upload', authenticateToken, upload.single('image'), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: '没有文件上传' });
-  }
-
-  const imageUrl = `/uploads/${req.file.filename}`;
-  res.json({ url: imageUrl });
-});
-
-// ============ Socket.IO ============
-
-const onlineUsers = new Map(); // userId -> socketId
-
+// =========== Socket.IO ===========
 io.on('connection', (socket) => {
   console.log('用户连接:', socket.id);
 
-  // 用户身份验证
-  socket.on('authenticate', (token) => {
-    const decoded = verifyToken(token);
-    if (decoded) {
+  socket.on('authenticate', async (token) => {
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET);
+      if (!decoded) return;
       socket.userId = decoded.userId;
-      onlineUsers.set(decoded.userId, socket.id);
+      onlineUsers.set(decoded.userId.toString(), socket.id);
 
-      const user = db.users.find(u => u.id === decoded.userId);
+      const user = await User.findById(decoded.userId);
       if (user) {
-        // 加入用户的所有群组
-        user.groups.forEach(groupId => {
-          socket.join(groupId);
-        });
+        // 加入用户所有群组房间
+        for (const gid of user.groups || []) {
+          socket.join(gid);
+        }
 
-        // 通知所有群组该用户上线
-        user.groups.forEach(groupId => {
-          io.to(groupId).emit('user_online', {
-            userId: user.id,
-            username: user.username
-          });
-        });
+        // 通知群组其他成员该用户上线
+        for (const gid of user.groups || []) {
+          io.to(gid).emit('user_online', { userId: user._id.toString(), username: user.username });
+        }
       }
+    } catch (err) {
+      // ignore
     }
   });
 
-  // 发送消息
-  socket.on('send_message', (data) => {
+  socket.on('send_message', async (data) => {
     if (!socket.userId) return;
-
     const { groupId, content, type, replyTo, imageUrl } = data;
-    const group = db.groups.find(g => g.id === groupId);
+    const group = await Group.findById(groupId);
+    if (!group || !group.members.some(m => m.toString() === socket.userId.toString())) return;
 
-    if (!group || !group.members.includes(socket.userId)) {
-      return;
-    }
-
-    // 检查全员禁言
-    if (group.muteAll && group.ownerId !== socket.userId && !group.admins.includes(socket.userId)) {
+    if (group.muteAll && group.ownerId.toString() !== socket.userId.toString() && !group.admins.map(a => a.toString()).includes(socket.userId.toString())) {
       socket.emit('error', { message: '当前群组已开启全员禁言' });
       return;
     }
 
-    const user = db.users.find(u => u.id === socket.userId);
+    const user = await User.findById(socket.userId);
 
-    const message = {
-      id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+    const messagePayload = {
       groupId,
       userId: socket.userId,
-      username: user?.username || '未知用户',
-      avatar: user?.avatar || '',
+      username: user ? user.username : '未知用户',
+      avatar: user ? user.avatar : '',
       content,
       type: type || 'text',
       imageUrl,
-      replyTo,
-      timestamp: new Date().toISOString(),
-      edited: false,
-      pinned: false
+      replyTo
     };
 
-    db.messages.push(message);
+    const message = await createMessageAndCleanup(messagePayload);
 
-    // 广播消息到群组
     io.to(groupId).emit('new_message', message);
   });
 
-  // 正在输入
-  socket.on('typing', (data) => {
-    if (!socket.userId) return;
-
-    const user = db.users.find(u => u.id === socket.userId);
-    socket.to(data.groupId).emit('user_typing', {
-      userId: socket.userId,
-      username: user?.username,
-      groupId: data.groupId
-    });
-  });
-
-  // 停止输入
-  socket.on('stop_typing', (data) => {
-    if (!socket.userId) return;
-
-    socket.to(data.groupId).emit('user_stop_typing', {
-      userId: socket.userId,
-      groupId: data.groupId
-    });
-  });
-
-  // 编辑消息
-  socket.on('edit_message', (data) => {
-    if (!socket.userId) return;
-
-    const message = db.messages.find(m => m.id === data.messageId);
-
-    if (message && message.userId === socket.userId) {
-      message.content = data.content;
-      message.edited = true;
-
-      io.to(message.groupId).emit('message_edited', message);
-    }
-  });
-
-  // 撤回消息
-  socket.on('recall_message', (data) => {
-    if (!socket.userId) return;
-
-    const message = db.messages.find(m => m.id === data.messageId);
-
-    if (message) {
-      const group = db.groups.find(g => g.id === message.groupId);
-
-      // 检查权限: 消息发送者或管理员
-      if (message.userId === socket.userId ||
-          (group && (group.ownerId === socket.userId || group.admins.includes(socket.userId)))) {
-
-        const index = db.messages.findIndex(m => m.id === data.messageId);
-        if (index > -1) {
-          db.messages.splice(index, 1);
-        }
-
-        io.to(message.groupId).emit('message_recalled', {
-          messageId: data.messageId,
-          groupId: message.groupId
-        });
-      }
-    }
-  });
-
-  // 置顶消息
-  socket.on('pin_message', (data) => {
-    if (!socket.userId) return;
-
-    const message = db.messages.find(m => m.id === data.messageId);
-
-    if (message) {
-      const group = db.groups.find(g => g.id === message.groupId);
-
-      if (group && (group.ownerId === socket.userId || group.admins.includes(socket.userId))) {
-        message.pinned = !message.pinned;
-
-        if (message.pinned) {
-          if (!group.pinnedMessages.includes(message.id)) {
-            group.pinnedMessages.push(message.id);
-          }
-        } else {
-          const index = group.pinnedMessages.indexOf(message.id);
-          if (index > -1) {
-            group.pinnedMessages.splice(index, 1);
-          }
-        }
-
-        io.to(message.groupId).emit('message_pinned', {
-          messageId: message.id,
-          pinned: message.pinned,
-          groupId: message.groupId
-        });
-      }
-    }
-  });
-
-  // 断开连接
   socket.on('disconnect', () => {
     console.log('用户断开:', socket.id);
-
     if (socket.userId) {
-      const user = db.users.find(u => u.id === socket.userId);
-
-      if (user) {
-        user.groups.forEach(groupId => {
-          io.to(groupId).emit('user_offline', {
-            userId: user.id,
-            username: user.username
-          });
-        });
-      }
-
-      onlineUsers.delete(socket.userId);
+      onlineUsers.delete(socket.userId.toString());
     }
   });
 });
 
-// 启动服务器
+// start server
 server.listen(PORT, () => {
   console.log(`服务器运行在 http://localhost:${PORT}`);
 });
