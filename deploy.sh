@@ -53,7 +53,7 @@ echo -e "${GREEN}✓ Nginx 已安装${NC}"
 
 # 5. 克隆或更新代码
 echo -e "${YELLOW}[5/9] 准备应用代码...${NC}"
-APP_DIR="/var/www/chat-room"
+APP_DIR="/var/www/duorenliaotian3"
 
 if [ -d "$APP_DIR" ]; then
     echo "应用目录已存在,正在更新..."
@@ -69,8 +69,8 @@ else
     fi
     
     cd /var/www
-    git clone $REPO_URL chat-room
-    cd chat-room
+    git clone $REPO_URL duorenliaotian3
+    cd duorenliaotian3
 fi
 
 # 6. 安装依赖
@@ -84,22 +84,39 @@ if [ ! -f ".env" ]; then
     JWT_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
     cat > .env << EOF
 PORT=3000
-JWT_SECRET=$JWT_SECRET
 NODE_ENV=production
+JWT_SECRET=$JWT_SECRET
+APP_BASE_URL=https://lts1992.duckdns.org
+MONGODB_URI=
+
+# Cloudinary (recommended)
+# CLOUDINARY_CLOUD_NAME=
+# CLOUDINARY_API_KEY=
+# CLOUDINARY_API_SECRET=
+
+# Upload limits
+# IMAGE_MAX_BYTES=5242880
+# VIDEO_MAX_BYTES=20971520
+
+# SMTP (Gmail/Google Workspace)
+# SMTP_HOST=smtp.gmail.com
+# SMTP_PORT=587
+# SMTP_SECURE=false
+# SMTP_USER=
+# SMTP_PASS=
+# SMTP_FROM=
 EOF
     echo -e "${GREEN}✓ .env 文件已创建${NC}"
+    echo -e "${YELLOW}请先编辑 .env 填入 MONGODB_URI/Cloudinary/SMTP 等配置，然后重新运行本脚本继续部署。${NC}"
+    exit 0
 else
     echo ".env 文件已存在,跳过..."
 fi
 
-# 创建上传目录
-mkdir -p server/uploads
-chmod 755 server/uploads
-
 # 8. 配置并启动 PM2
 echo -e "${YELLOW}[8/9] 启动应用...${NC}"
-pm2 delete chat-room 2>/dev/null || true
-pm2 start server/server.js --name chat-room
+pm2 delete duorenliaotian3 2>/dev/null || true
+pm2 start server.js --name duorenliaotian3
 pm2 startup
 pm2 save
 echo -e "${GREEN}✓ 应用已启动${NC}"
@@ -115,12 +132,12 @@ if [ -z "$DOMAIN" ]; then
 fi
 
 # 创建 Nginx 配置
-cat > /etc/nginx/sites-available/chat-room << EOF
+cat > /etc/nginx/sites-available/duorenliaotian3 << EOF
 server {
     listen 80;
     server_name $DOMAIN;
     
-    client_max_body_size 10M;
+    client_max_body_size 25M;
 
     location / {
         proxy_pass http://localhost:3000;
@@ -148,7 +165,7 @@ server {
 EOF
 
 # 启用站点
-ln -sf /etc/nginx/sites-available/chat-room /etc/nginx/sites-enabled/
+ln -sf /etc/nginx/sites-available/duorenliaotian3 /etc/nginx/sites-enabled/
 rm -f /etc/nginx/sites-enabled/default
 
 # 测试并重启 Nginx
@@ -172,8 +189,8 @@ echo "访问地址: http://$DOMAIN"
 echo ""
 echo "常用命令:"
 echo "  查看状态: pm2 status"
-echo "  查看日志: pm2 logs chat-room"
-echo "  重启应用: pm2 restart chat-room"
+echo "  查看日志: pm2 logs duorenliaotian3"
+echo "  重启应用: pm2 restart duorenliaotian3"
 echo ""
 echo "配置 HTTPS (可选):"
 echo "  sudo apt install -y certbot python3-certbot-nginx"

@@ -202,13 +202,13 @@ sudo chmod 755 server/uploads
 
 ```bash
 # 启动应用
-pm2 start server/server.js --name chat-room
+pm2 start server.js --name duorenliaotian3
 
 # 查看状态
 pm2 status
 
 # 查看日志
-pm2 logs chat-room
+pm2 logs duorenliaotian3
 
 # 设置开机自启
 pm2 startup
@@ -397,7 +397,7 @@ pm2 monit
 
 ```bash
 # PM2 日志
-pm2 logs chat-room
+pm2 logs duorenliaotian3
 
 # Nginx 访问日志
 sudo tail -f /var/log/nginx/access.log
@@ -421,7 +421,7 @@ sudo git pull
 sudo npm install --production
 
 # 重启应用
-pm2 restart chat-room
+pm2 restart duorenliaotian3
 ```
 
 ### 备份数据
@@ -508,7 +508,7 @@ sudo swapon /swapfile
 echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 
 # 3. 重启 PM2 应用
-pm2 restart chat-room
+pm2 restart duorenliaotian3
 ```
 
 ## 📊 性能优化
@@ -532,10 +532,10 @@ gzip_types text/plain text/css text/xml text/javascript application/x-javascript
 
 ```bash
 # 停止当前进程
-pm2 delete chat-room
+pm2 delete duorenliaotian3
 
 # 使用集群模式启动 (使用所有 CPU 核心)
-pm2 start server/server.js --name chat-room -i max
+pm2 start server.js --name duorenliaotian3 -i max
 
 # 保存配置
 pm2 save

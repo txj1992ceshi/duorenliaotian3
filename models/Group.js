@@ -9,7 +9,8 @@ const groupSchema = new mongoose.Schema({
   members: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   announcement: { type: String, default: '' },
   muteAll: { type: Boolean, default: false },
-  pinnedMessages: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Message' }],
+  // 置顶消息：使用消息 id（字符串）以兼容前端 currentGroup.pinnedMessages
+  pinnedMessages: [{ type: String }],
   createdAt: { type: Date, default: Date.now }
 });
 
