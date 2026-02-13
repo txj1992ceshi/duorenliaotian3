@@ -62,6 +62,7 @@ const User = require('./models/User');
 const Group = require('./models/Group');
 const Message = require('./models/Message');
 const PasswordResetToken = require('./models/PasswordResetToken');
+const FriendRequest = require('./models/FriendRequest');
 const { generateToken, authenticateToken } = require('./middleware/auth');
 const isAdmin = require('./middleware/isAdmin');
 
@@ -209,7 +210,8 @@ function toPublicUser(userDoc) {
     avatar: userDoc.avatar,
     role: userDoc.role,
     groups: userDoc.groups || [],
-    isBanned: Boolean(userDoc.isBanned)
+    isBanned: Boolean(userDoc.isBanned),
+    userNumber: userDoc.userNumber || null
   };
 }
 
@@ -233,16 +235,32 @@ function serializeMessage(doc) {
 function serializeGroupBasic(groupDoc) {
   return {
     id: groupDoc._id,
+    type: groupDoc.type || 'group',
     name: groupDoc.name,
     description: groupDoc.description || '',
     ownerId: groupDoc.ownerId.toString(),
     admins: (groupDoc.admins || []).map((a) => a.toString()),
     members: (groupDoc.members || []).map((m) => m.toString()),
+    joinRequestsCount: (groupDoc.joinRequests || []).length,
     createdAt: groupDoc.createdAt ? new Date(groupDoc.createdAt).toISOString() : new Date().toISOString(),
     announcement: groupDoc.announcement || '',
     muteAll: Boolean(groupDoc.muteAll),
     pinnedMessages: groupDoc.pinnedMessages || []
   };
+}
+
+async function generateUniqueUserNumber() {
+  for (let i = 0; i < 5; i += 1) {
+    const num = String(Math.floor(100000000 + Math.random() * 900000000));
+    const exists = await User.findOne({ userNumber: num }).select('_id').lean();
+    if (!exists) return num;
+  }
+  return `${Date.now()}`.slice(-9);
+}
+
+function dmGroupIdForUsers(a, b) {
+  const [x, y] = [a.toString(), b.toString()].sort();
+  return `dm_${x}_${y}`;
 }
 
 async function createMessageAndCleanup(payload) {
@@ -305,7 +323,8 @@ app.post('/api/register', async (req, res) => {
     const hashed = await bcrypt.hash(password, 10);
     const avatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(username)}`;
 
-    let user = await User.create({ username, email, password: hashed, avatar });
+    const userNumber = await generateUniqueUserNumber();
+    let user = await User.create({ username, email, password: hashed, avatar, userNumber });
 
     // 自动把首个注册用户设为 admin（如果数据库当前没有 admin）
     const adminCount = await User.countDocuments({ role: 'admin' });
@@ -334,6 +353,9 @@ app.post('/api/login', async (req, res) => {
     const ok = await bcrypt.compare(password, user.password);
     if (!ok) return res.status(401).json({ error: '用户名或密码错误' });
 
+    if (!user.userNumber) {
+      user.userNumber = await generateUniqueUserNumber();
+    }
     user.lastLoginAt = new Date();
     await user.save();
 
@@ -404,7 +426,146 @@ app.post('/api/reset-password', async (req, res) => {
 // 获取当前用户信息
 app.get('/api/user/me', authenticateToken, async (req, res) => {
   if (!req.user) return res.status(404).json({ error: '用户不存在' });
+  if (!req.user.userNumber) {
+    const userNumber = await generateUniqueUserNumber();
+    await User.findByIdAndUpdate(req.userId, { userNumber });
+    req.user.userNumber = userNumber;
+  }
   res.json(req.user);
+});
+
+// 更新个人信息
+app.put('/api/user/profile', authenticateToken, async (req, res) => {
+  try {
+    const { username, avatar } = req.body || {};
+    const updates = {};
+    if (username && String(username).trim()) updates.username = String(username).trim();
+    if (avatar && String(avatar).trim()) updates.avatar = String(avatar).trim();
+    if (Object.keys(updates).length === 0) return res.status(400).json({ error: '无可更新字段' });
+    const user = await User.findByIdAndUpdate(req.userId, updates, { new: true }).select('-password');
+    res.json(user);
+  } catch (err) {
+    console.error('更新个人信息错误:', err);
+    res.status(500).json({ error: '更新失败' });
+  }
+});
+
+// 根据9位ID搜索用户
+app.get('/api/users/search', authenticateToken, async (req, res) => {
+  const number = String(req.query.number || '').trim();
+  if (!/^\d{9}$/.test(number)) return res.status(400).json({ error: '请输入9位数字ID' });
+  const user = await User.findOne({ userNumber: number }).select('username avatar userNumber').lean();
+  if (!user) return res.status(404).json({ error: '用户不存在' });
+  if (user._id.toString() === req.userId.toString()) return res.status(400).json({ error: '不能添加自己' });
+  res.json({ id: user._id.toString(), username: user.username, avatar: user.avatar, userNumber: user.userNumber });
+});
+
+// 发送好友请求
+app.post('/api/friends/request', authenticateToken, async (req, res) => {
+  const { userNumber } = req.body || {};
+  if (!/^\d{9}$/.test(String(userNumber || ''))) return res.status(400).json({ error: '请输入9位数字ID' });
+  const target = await User.findOne({ userNumber }).select('_id').lean();
+  if (!target) return res.status(404).json({ error: '用户不存在' });
+  if (target._id.toString() === req.userId.toString()) return res.status(400).json({ error: '不能添加自己' });
+
+  const me = await User.findById(req.userId).select('friends').lean();
+  if (me?.friends?.some((f) => f.toString() === target._id.toString())) {
+    return res.status(400).json({ error: '已是好友' });
+  }
+
+  const existing = await FriendRequest.findOne({
+    fromUser: req.userId,
+    toUser: target._id,
+    status: 'pending'
+  }).lean();
+  if (existing) return res.json({ status: 'pending' });
+
+  await FriendRequest.create({ fromUser: req.userId, toUser: target._id });
+  res.json({ status: 'pending' });
+});
+
+// 获取好友请求（收到的）
+app.get('/api/friends/requests', authenticateToken, async (req, res) => {
+  const requests = await FriendRequest.find({ toUser: req.userId, status: 'pending' })
+    .populate('fromUser', 'username avatar userNumber')
+    .sort({ createdAt: -1 })
+    .lean();
+  res.json(requests.map((r) => ({
+    id: r._id.toString(),
+    from: {
+      id: r.fromUser?._id?.toString(),
+      username: r.fromUser?.username,
+      avatar: r.fromUser?.avatar,
+      userNumber: r.fromUser?.userNumber
+    },
+    createdAt: r.createdAt
+  })));
+});
+
+// 处理好友请求
+app.put('/api/friends/requests/:id', authenticateToken, async (req, res) => {
+  const { action } = req.body || {};
+  const request = await FriendRequest.findById(req.params.id);
+  if (!request || request.toUser.toString() !== req.userId.toString()) {
+    return res.status(404).json({ error: '请求不存在' });
+  }
+  if (request.status !== 'pending') return res.json({ status: request.status });
+  if (!['accept', 'reject'].includes(action)) return res.status(400).json({ error: '无效操作' });
+
+  request.status = action === 'accept' ? 'accepted' : 'rejected';
+  await request.save();
+
+  if (action === 'accept') {
+    await User.findByIdAndUpdate(req.userId, { $addToSet: { friends: request.fromUser } });
+    await User.findByIdAndUpdate(request.fromUser, { $addToSet: { friends: req.userId } });
+  }
+  res.json({ status: request.status });
+});
+
+// 获取好友列表
+app.get('/api/friends', authenticateToken, async (req, res) => {
+  const user = await User.findById(req.userId).populate('friends', 'username avatar userNumber').lean();
+  const friends = (user?.friends || []).map((f) => ({
+    id: f._id.toString(),
+    username: f.username,
+    avatar: f.avatar,
+    userNumber: f.userNumber
+  }));
+  res.json(friends);
+});
+
+// 获取或创建私聊
+app.post('/api/dms/:userId', authenticateToken, async (req, res) => {
+  const otherId = req.params.userId;
+  if (!otherId) return res.status(400).json({ error: '缺少用户ID' });
+  const me = await User.findById(req.userId).select('friends').lean();
+  const isFriend = me?.friends?.some((f) => f.toString() === otherId.toString());
+  if (!isFriend) return res.status(403).json({ error: '仅支持与好友私聊' });
+
+  const dmId = dmGroupIdForUsers(req.userId, otherId);
+  let group = await Group.findById(dmId);
+  if (!group) {
+    const otherUser = await User.findById(otherId).select('username').lean();
+    group = await Group.create({
+      _id: dmId,
+      type: 'dm',
+      name: otherUser?.username || '私聊',
+      description: '',
+      ownerId: req.userId,
+      admins: [],
+      members: [req.userId, otherId],
+      joinRequests: []
+    });
+    await User.findByIdAndUpdate(req.userId, { $addToSet: { groups: dmId } });
+    await User.findByIdAndUpdate(otherId, { $addToSet: { groups: dmId } });
+  }
+  res.json(serializeGroupBasic(group));
+});
+
+// 私聊列表
+app.get('/api/dms', authenticateToken, async (req, res) => {
+  const groups = await Group.find({ members: req.userId, type: 'dm' }).sort({ createdAt: -1 });
+  res.json(groups.map(serializeGroupBasic));
 });
 
 // 创建群组
@@ -422,11 +583,13 @@ app.post('/api/groups', authenticateToken, async (req, res) => {
 
     const group = await Group.create({
       _id: gid,
+      type: 'group',
       name: name.trim(),
       description: (description || '').trim(),
       ownerId: req.userId,
       admins: [],
-      members: [req.userId]
+      members: [req.userId],
+      joinRequests: []
     });
 
     await User.findByIdAndUpdate(req.userId, { $addToSet: { groups: gid } });
@@ -460,23 +623,25 @@ app.post('/api/groups/:groupId/join', authenticateToken, async (req, res) => {
   try {
     const group = await Group.findById(req.params.groupId);
     if (!group) return res.status(404).json({ error: '群组不存在' });
+    if (group.type === 'dm') return res.status(400).json({ error: '私聊不可加入' });
 
     if (ensureIsGroupMember({ groupDoc: group, userId: req.userId })) {
       return res.status(400).json({ error: '您已经是该群组成员' });
     }
 
-    group.members.push(req.userId);
+    const alreadyRequested = (group.joinRequests || []).some((u) => u.toString() === req.userId.toString());
+    if (alreadyRequested) return res.json({ status: 'pending' });
+
+    group.joinRequests = group.joinRequests || [];
+    group.joinRequests.push(req.userId);
     await group.save();
 
-    await User.findByIdAndUpdate(req.userId, { $addToSet: { groups: group._id } });
-
-    io.to(group._id).emit('member_joined', {
+    io.to(group._id).emit('join_request_created', {
       groupId: group._id,
-      userId: req.userId.toString(),
-      username: req.user?.username
+      count: (group.joinRequests || []).length
     });
 
-    res.json(serializeGroupBasic(group));
+    res.json({ status: 'pending' });
   } catch (err) {
     console.error('加入群组错误:', err);
     res.status(500).json({ error: '加入群组失败' });
@@ -486,7 +651,7 @@ app.post('/api/groups/:groupId/join', authenticateToken, async (req, res) => {
 // 获取用户的所有群组
 app.get('/api/groups', authenticateToken, async (req, res) => {
   try {
-    const groups = await Group.find({ members: req.userId }).sort({ createdAt: -1 });
+    const groups = await Group.find({ members: req.userId, type: { $ne: 'dm' } }).sort({ createdAt: -1 });
     res.json(groups.map(serializeGroupBasic));
   } catch (err) {
     console.error('获取群组列表错误:', err);
@@ -525,6 +690,51 @@ app.get('/api/groups/:groupId', authenticateToken, async (req, res) => {
     console.error('获取群组详情错误:', err);
     res.status(500).json({ error: '获取群组详情失败' });
   }
+});
+
+// 获取入群申请列表（群主/管理员）
+app.get('/api/groups/:groupId/requests', authenticateToken, async (req, res) => {
+  const group = await Group.findById(req.params.groupId);
+  if (!group) return res.status(404).json({ error: '群组不存在' });
+  if (!userHasGroupAdminRights({ groupDoc: group, userId: req.userId })) return res.status(403).json({ error: '无权限' });
+
+  const requestIds = (group.joinRequests || []).map((u) => u.toString());
+  if (requestIds.length === 0) return res.json([]);
+  const users = await User.find({ _id: { $in: requestIds } }).select('username avatar userNumber').lean();
+  const map = new Map(users.map((u) => [u._id.toString(), u]));
+  const ordered = requestIds.map((id) => map.get(id)).filter(Boolean).map((u) => ({
+    id: u._id.toString(),
+    username: u.username,
+    avatar: u.avatar,
+    userNumber: u.userNumber
+  }));
+  res.json(ordered);
+});
+
+// 审批入群申请
+app.put('/api/groups/:groupId/requests/:userId', authenticateToken, async (req, res) => {
+  const { action } = req.body || {};
+  const group = await Group.findById(req.params.groupId);
+  if (!group) return res.status(404).json({ error: '群组不存在' });
+  if (!userHasGroupAdminRights({ groupDoc: group, userId: req.userId })) return res.status(403).json({ error: '无权限' });
+
+  const targetId = req.params.userId;
+  const requestIds = (group.joinRequests || []).map((u) => u.toString());
+  if (!requestIds.includes(targetId)) return res.status(404).json({ error: '申请不存在' });
+  if (!['approve', 'reject'].includes(action)) return res.status(400).json({ error: '无效操作' });
+
+  group.joinRequests = group.joinRequests.filter((u) => u.toString() !== targetId);
+  if (action === 'approve') {
+    group.members.push(targetId);
+    await User.findByIdAndUpdate(targetId, { $addToSet: { groups: group._id } });
+    io.to(group._id).emit('member_joined', {
+      groupId: group._id,
+      userId: targetId.toString()
+    });
+  }
+  await group.save();
+  io.to(group._id).emit('join_request_updated', { groupId: group._id, count: (group.joinRequests || []).length });
+  res.json({ status: action });
 });
 
 // 更新群公告

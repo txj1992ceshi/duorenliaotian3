@@ -8,6 +8,7 @@ let replyToMessage = null;
 let typingTimeout = null;
 let onlineUsers = new Set();
 let pendingAttachment = null;
+let currentView = 'info';
 
 // ============ 多标签页状态同步 ============
 const TabSync = (() => {
@@ -107,6 +108,58 @@ function showPage(pageId) {
       tabbar.style.display = 'none';
     }
   }
+  if (pageId === 'app-page') {
+    setView(currentView || 'info');
+  }
+}
+
+function setView(view) {
+  currentView = view;
+  const welcome = document.getElementById('welcome-screen');
+  const chat = document.getElementById('chat-area');
+  const friends = document.getElementById('friends-page');
+  const settings = document.getElementById('settings-page');
+  const panel = document.getElementById('right-panel');
+  if (panel) panel.style.display = 'none';
+  if (panelBackdrop) panelBackdrop.style.display = 'none';
+
+  updateSidebarTabs(view);
+
+  if (view === 'friends') {
+    welcome.style.display = 'none';
+    chat.style.display = 'none';
+    friends.style.display = 'flex';
+    settings.style.display = 'none';
+    loadFriends();
+    loadFriendRequests();
+  } else if (view === 'settings') {
+    welcome.style.display = 'none';
+    chat.style.display = 'none';
+    friends.style.display = 'none';
+    settings.style.display = 'flex';
+    loadSettingsProfile();
+  } else {
+    friends.style.display = 'none';
+    settings.style.display = 'none';
+    if (currentGroupId) {
+      welcome.style.display = 'none';
+      chat.style.display = 'flex';
+    } else {
+      chat.style.display = 'none';
+      welcome.style.display = 'flex';
+    }
+  }
+  syncMobileTabbar();
+}
+
+function updateSidebarTabs(view) {
+  const infoBtn = document.getElementById('sidebar-tab-info');
+  const friendsBtn = document.getElementById('sidebar-tab-friends');
+  const settingsBtn = document.getElementById('sidebar-tab-settings');
+  [infoBtn, friendsBtn, settingsBtn].forEach((btn) => btn?.classList.remove('active'));
+  if (view === 'friends') friendsBtn?.classList.add('active');
+  else if (view === 'settings') settingsBtn?.classList.add('active');
+  else infoBtn?.classList.add('active');
 }
 
 function showToast(message, type = 'info') {
@@ -257,6 +310,18 @@ function connectSocket() {
       updateMuteAllUI();
     }
   });
+
+  socket.on('join_request_created', (data) => {
+    if (data.groupId === currentGroupId) {
+      updateJoinRequestBadge(data.count || 0);
+    }
+  });
+
+  socket.on('join_request_updated', (data) => {
+    if (data.groupId === currentGroupId) {
+      updateJoinRequestBadge(data.count || 0);
+    }
+  });
 }
 
 function disconnectSocket() {
@@ -398,6 +463,16 @@ document.getElementById('logout-btn')?.addEventListener('click', () => {
   }
 });
 
+document.getElementById('sidebar-tab-info')?.addEventListener('click', () => {
+  setView('info');
+});
+document.getElementById('sidebar-tab-friends')?.addEventListener('click', () => {
+  setView('friends');
+});
+document.getElementById('sidebar-tab-settings')?.addEventListener('click', () => {
+  setView('settings');
+});
+
 function logout({ broadcast = true } = {}) {
   disconnectSocket();
   removeToken();
@@ -453,6 +528,7 @@ function displayGroups(groups) {
 
 async function selectGroup(groupId) {
   currentGroupId = groupId;
+  setView('info');
 
   // 更新 UI 选中状态
   document.querySelectorAll('.group-item').forEach(item => {
@@ -1054,24 +1130,15 @@ sidebarToggle?.addEventListener('click', () => {
 sidebarBackdrop?.addEventListener('click', closeSidebar);
 
 // 移动端底部按钮
-document.getElementById('tab-groups')?.addEventListener('click', () => {
+document.getElementById('tab-info')?.addEventListener('click', () => {
+  setView('info');
   openSidebar();
 });
-document.getElementById('tab-create')?.addEventListener('click', () => {
-  openModal('create-group-modal');
+document.getElementById('tab-friends')?.addEventListener('click', () => {
+  setView('friends');
 });
-document.getElementById('tab-join')?.addEventListener('click', () => {
-  openModal('join-group-modal');
-});
-document.getElementById('tab-info')?.addEventListener('click', () => {
-  if (!currentGroupId) {
-    showToast('请先选择群组', 'info');
-    return;
-  }
-  const panel = document.getElementById('right-panel');
-  const next = panel.style.display === 'none' ? 'flex' : 'none';
-  panel.style.display = next;
-  if (panelBackdrop) panelBackdrop.style.display = next === 'flex' ? 'block' : 'none';
+document.getElementById('tab-settings')?.addEventListener('click', () => {
+  setView('settings');
 });
 
 window.addEventListener('resize', syncMobileTabbar);
@@ -1162,15 +1229,31 @@ function updateGroupPanel(group) {
   // 管理员操作
   const isAdmin = currentUser && (group.ownerId === currentUser.id || group.admins.includes(currentUser.id));
   const adminActions = document.getElementById('admin-actions');
-  if (isAdmin) {
+  if (group.type === 'dm') {
+    adminActions.style.display = 'none';
+    updateJoinRequestBadge(0);
+  } else if (isAdmin) {
     adminActions.style.display = 'block';
     document.getElementById('mute-all-text').textContent = group.muteAll ? '关闭全员禁言' : '开启全员禁言';
+    updateJoinRequestBadge(group.joinRequestsCount || 0);
   } else {
     adminActions.style.display = 'none';
+    updateJoinRequestBadge(0);
   }
 
   // 成员列表
   displayMembers(group.membersInfo || []);
+}
+
+function updateJoinRequestBadge(count) {
+  const dot = document.getElementById('join-requests-badge');
+  const badge = document.getElementById('join-requests-count');
+  const show = count > 0;
+  if (dot) dot.style.display = show ? 'inline-block' : 'none';
+  if (badge) {
+    badge.style.display = show ? 'inline-block' : 'none';
+    badge.textContent = String(count || 0);
+  }
 }
 
 function displayMembers(members) {
@@ -1246,6 +1329,68 @@ function updateMuteAllUI() {
   if (!currentGroup) return;
   document.getElementById('mute-all-text').textContent = 
     currentGroup.muteAll ? '关闭全员禁言' : '开启全员禁言';
+}
+
+document.getElementById('join-requests-btn')?.addEventListener('click', async () => {
+  await loadJoinRequests();
+  document.getElementById('join-requests-section').style.display = 'block';
+});
+
+async function loadJoinRequests() {
+  if (!currentGroup) return;
+  try {
+    const list = await apiRequest(`/api/groups/${currentGroup.id}/requests`);
+    renderJoinRequests(list || []);
+    updateJoinRequestBadge(list.length || 0);
+  } catch (err) {
+    showToast(err.message || '加载申请失败', 'error');
+  }
+}
+
+function renderJoinRequests(requests) {
+  const section = document.getElementById('join-requests-section');
+  const container = document.getElementById('join-requests-list');
+  container.innerHTML = '';
+  if (!requests.length) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = 'block';
+  requests.forEach((u) => {
+    const item = document.createElement('div');
+    item.className = 'member-item';
+    item.innerHTML = `
+      <img src="${u.avatar}" class="member-avatar" alt="${u.username}">
+      <div class="member-info">
+        <div class="member-name">${escapeHtml(u.username)}</div>
+        <div class="member-role">ID: ${u.userNumber || '-'}</div>
+      </div>
+      <button class="member-action-btn" data-action="approve">通过</button>
+      <button class="member-action-btn" data-action="reject">拒绝</button>
+    `;
+    item.querySelector('[data-action="approve"]')?.addEventListener('click', async () => {
+      await handleJoinRequest(u.id, 'approve');
+    });
+    item.querySelector('[data-action="reject"]')?.addEventListener('click', async () => {
+      await handleJoinRequest(u.id, 'reject');
+    });
+    container.appendChild(item);
+  });
+}
+
+async function handleJoinRequest(userId, action) {
+  if (!currentGroup) return;
+  try {
+    await apiRequest(`/api/groups/${currentGroup.id}/requests/${userId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ action })
+    });
+    await loadGroupDetails(currentGroup.id);
+    await loadJoinRequests();
+    showToast(action === 'approve' ? '已通过申请' : '已拒绝申请', 'success');
+  } catch (err) {
+    showToast(err.message || '操作失败', 'error');
+  }
 }
 
 // 打开/关闭群组信息面板
@@ -1359,7 +1504,7 @@ document.getElementById('join-group-form')?.addEventListener('submit', async (e)
   }
 
   try {
-    await apiRequest(`/api/groups/${searchedGroup.id}/join`, {
+    const result = await apiRequest(`/api/groups/${searchedGroup.id}/join`, {
       method: 'POST'
     });
 
@@ -1369,12 +1514,161 @@ document.getElementById('join-group-form')?.addEventListener('submit', async (e)
     document.getElementById('join-group-submit-btn').style.display = 'none';
     searchedGroup = null;
 
-    await loadGroups();
-    showToast('加入群组成功!', 'success');
+    if (result.status === 'pending') {
+      showToast('申请已提交，等待管理员审核', 'success');
+    } else {
+      await loadGroups();
+      showToast('加入群组成功!', 'success');
+    }
   } catch (error) {
     showToast(error.message, 'error');
   }
 });
+
+// ============ 添加好友 ============
+
+document.getElementById('add-friend-btn')?.addEventListener('click', () => {
+  openModal('add-friend-modal');
+});
+document.getElementById('friends-add-btn')?.addEventListener('click', () => {
+  openModal('add-friend-modal');
+});
+
+let searchedFriend = null;
+
+document.getElementById('search-friend-btn')?.addEventListener('click', async () => {
+  const number = document.getElementById('add-friend-id').value.trim();
+  if (!/^\d{9}$/.test(number)) {
+    showToast('请输入9位数字ID', 'error');
+    return;
+  }
+  try {
+    const user = await apiRequest(`/api/users/search?number=${number}`);
+    searchedFriend = user;
+    document.getElementById('friend-preview-name').textContent = user.username;
+    document.getElementById('friend-preview-number').textContent = user.userNumber;
+    document.getElementById('friend-preview').style.display = 'block';
+    document.getElementById('add-friend-submit-btn').style.display = 'block';
+  } catch (err) {
+    showToast(err.message || '未找到用户', 'error');
+    document.getElementById('friend-preview').style.display = 'none';
+    document.getElementById('add-friend-submit-btn').style.display = 'none';
+  }
+});
+
+document.getElementById('add-friend-form')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!searchedFriend) return;
+  try {
+    await apiRequest('/api/friends/request', {
+      method: 'POST',
+      body: JSON.stringify({ userNumber: searchedFriend.userNumber })
+    });
+    closeModal();
+    searchedFriend = null;
+    document.getElementById('add-friend-form').reset();
+    document.getElementById('friend-preview').style.display = 'none';
+    document.getElementById('add-friend-submit-btn').style.display = 'none';
+    showToast('好友请求已发送', 'success');
+  } catch (err) {
+    showToast(err.message || '发送失败', 'error');
+  }
+});
+
+async function loadFriends() {
+  try {
+    const friends = await apiRequest('/api/friends');
+    renderFriends(friends || []);
+  } catch (err) {
+    console.error('加载好友失败:', err);
+  }
+}
+
+function renderFriends(friends) {
+  const container = document.getElementById('friends-list');
+  container.innerHTML = '';
+  if (!friends.length) {
+    container.innerHTML = '<div style="color: var(--text-secondary); font-size: 14px;">暂无好友</div>';
+    return;
+  }
+  friends.forEach((f) => {
+    const item = document.createElement('div');
+    item.className = 'friend-item';
+    item.innerHTML = `
+      <img src="${f.avatar}" alt="${f.username}">
+      <div class="member-info">
+        <div class="member-name">${escapeHtml(f.username)}</div>
+        <div class="member-role">ID: ${f.userNumber || '-'}</div>
+      </div>
+      <div class="friend-actions">
+        <button class="member-action-btn">聊天</button>
+      </div>
+    `;
+    item.querySelector('button')?.addEventListener('click', async () => {
+      try {
+        const dm = await apiRequest(`/api/dms/${f.id}`, { method: 'POST' });
+        await loadGroups();
+        selectGroup(dm.id);
+      } catch (err) {
+        showToast(err.message || '打开私聊失败', 'error');
+      }
+    });
+    container.appendChild(item);
+  });
+}
+
+async function loadFriendRequests() {
+  try {
+    const requests = await apiRequest('/api/friends/requests');
+    renderFriendRequests(requests || []);
+  } catch (err) {
+    console.error('加载好友请求失败:', err);
+  }
+}
+
+function renderFriendRequests(requests) {
+  const container = document.getElementById('friend-requests-list');
+  container.innerHTML = '';
+  if (!requests.length) {
+    container.innerHTML = '<div style="color: var(--text-secondary); font-size: 14px;">暂无请求</div>';
+    return;
+  }
+  requests.forEach((r) => {
+    const item = document.createElement('div');
+    item.className = 'friend-item';
+    item.innerHTML = `
+      <img src="${r.from.avatar}" alt="${r.from.username}">
+      <div class="member-info">
+        <div class="member-name">${escapeHtml(r.from.username)}</div>
+        <div class="member-role">ID: ${r.from.userNumber || '-'}</div>
+      </div>
+      <div class="friend-actions">
+        <button class="member-action-btn" data-action="accept">通过</button>
+        <button class="member-action-btn" data-action="reject">拒绝</button>
+      </div>
+    `;
+    item.querySelector('[data-action="accept"]')?.addEventListener('click', async () => {
+      await handleFriendRequest(r.id, 'accept');
+    });
+    item.querySelector('[data-action="reject"]')?.addEventListener('click', async () => {
+      await handleFriendRequest(r.id, 'reject');
+    });
+    container.appendChild(item);
+  });
+}
+
+async function handleFriendRequest(requestId, action) {
+  try {
+    await apiRequest(`/api/friends/requests/${requestId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ action })
+    });
+    await loadFriendRequests();
+    await loadFriends();
+  } catch (err) {
+    showToast(err.message || '操作失败', 'error');
+  }
+}
 
 // ============ 编辑群公告 ============
 
@@ -1417,6 +1711,74 @@ document.getElementById('toggle-mute-all-btn')?.addEventListener('click', async 
     showToast(newMuteAll ? '已开启全员禁言' : '已关闭全员禁言', 'success');
   } catch (error) {
     showToast(error.message, 'error');
+  }
+});
+
+// ============ 个人设置 ============
+
+async function loadSettingsProfile() {
+  try {
+    const user = await apiRequest('/api/user/me');
+    currentUser = user;
+    setUser(user);
+    document.getElementById('settings-avatar-img').src = user.avatar;
+    document.getElementById('settings-username').value = user.username || '';
+    document.getElementById('settings-user-number').value = user.userNumber || '';
+  } catch (err) {
+    console.error('加载设置失败:', err);
+  }
+}
+
+document.getElementById('settings-avatar-btn')?.addEventListener('click', () => {
+  document.getElementById('settings-avatar-input')?.click();
+});
+
+document.getElementById('settings-avatar-input')?.addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('groupId', 'avatar');
+
+    const response = await fetch(`${API_URL}/api/upload`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${getToken()}`
+      },
+      body: formData
+    });
+    if (!response.ok) throw new Error('上传失败');
+    const data = await response.json();
+    await apiRequest('/api/user/profile', {
+      method: 'PUT',
+      body: JSON.stringify({ avatar: data.url })
+    });
+    await loadSettingsProfile();
+    document.getElementById('current-user-avatar').src = data.url;
+    showToast('头像已更新', 'success');
+  } catch (err) {
+    showToast(err.message || '上传失败', 'error');
+  }
+});
+
+document.getElementById('settings-save-btn')?.addEventListener('click', async () => {
+  const username = document.getElementById('settings-username').value.trim();
+  if (!username) {
+    showToast('昵称不能为空', 'error');
+    return;
+  }
+  try {
+    const user = await apiRequest('/api/user/profile', {
+      method: 'PUT',
+      body: JSON.stringify({ username })
+    });
+    currentUser = user;
+    setUser(user);
+    document.getElementById('current-username').textContent = user.username;
+    showToast('已保存', 'success');
+  } catch (err) {
+    showToast(err.message || '保存失败', 'error');
   }
 });
 
