@@ -11,6 +11,7 @@ const userSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
   lastLoginAt: { type: Date, default: null },
   userNumber: { type: String, unique: true, index: true },
+  googleId: { type: String, unique: true, sparse: true },
   isBanned: { type: Boolean, default: false },
   bannedAt: { type: Date, default: null }
 });

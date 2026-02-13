@@ -428,6 +428,11 @@ document.getElementById('login-form')?.addEventListener('submit', async (e) => {
   }
 });
 
+// Google 登录
+document.getElementById('google-login-btn')?.addEventListener('click', () => {
+  window.location.href = `${API_URL}/auth/google`;
+});
+
 // 忘记密码链接
 document.getElementById('forgot-password-link')?.addEventListener('click', (e) => {
   e.preventDefault();

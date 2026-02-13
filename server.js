@@ -32,6 +32,9 @@ const APP_BASE_URL = process.env.APP_BASE_URL || `http://localhost:${PORT}`;
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/chat-room';
 const MAX_MESSAGES = Number.parseInt(process.env.MAX_MESSAGES || '100000', 10);
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
+const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || `${APP_BASE_URL}/auth/google/callback`;
 
 const CLOUDINARY_ENABLED = Boolean(
   process.env.CLOUDINARY_CLOUD_NAME &&
@@ -207,6 +210,18 @@ function buildDefaultAvatar(username) {
   return `https://api.dicebear.com/7.x/avataaars/svg?seed=${seed}`;
 }
 
+async function generateUniqueUsername(base) {
+  const baseName = (base || 'user').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 16) || 'user';
+  let name = baseName;
+  for (let i = 0; i < 20; i += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const exists = await User.findOne({ username: name }).select('_id').lean();
+    if (!exists) return name;
+    name = `${baseName}${Math.floor(100 + Math.random() * 900)}`;
+  }
+  return `${baseName}${Date.now() % 10000}`;
+}
+
 function toPublicUser(userDoc) {
   const avatar = userDoc.avatar || buildDefaultAvatar(userDoc.username);
   return {
@@ -373,6 +388,104 @@ app.post('/api/login', async (req, res) => {
   } catch (err) {
     console.error('登录错误:', err);
     res.status(500).json({ error: '登录失败' });
+  }
+});
+
+// Google OAuth
+app.get('/auth/google', (req, res) => {
+  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+    return res.status(500).send('Google OAuth 未配置');
+  }
+  const params = new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID,
+    redirect_uri: GOOGLE_REDIRECT_URI,
+    response_type: 'code',
+    scope: 'openid email profile',
+    prompt: 'select_account'
+  });
+  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
+});
+
+app.get('/auth/google/callback', async (req, res) => {
+  try {
+    const code = req.query.code;
+    if (!code) return res.status(400).send('缺少 code');
+
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code,
+        client_id: GOOGLE_CLIENT_ID,
+        client_secret: GOOGLE_CLIENT_SECRET,
+        redirect_uri: GOOGLE_REDIRECT_URI,
+        grant_type: 'authorization_code'
+      }).toString()
+    });
+    if (!tokenRes.ok) {
+      const text = await tokenRes.text();
+      throw new Error(`token 获取失败: ${text}`);
+    }
+    const tokenData = await tokenRes.json();
+
+    const userRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` }
+    });
+    if (!userRes.ok) {
+      const text = await userRes.text();
+      throw new Error(`userinfo 获取失败: ${text}`);
+    }
+    const profile = await userRes.json();
+
+    const email = profile.email;
+    const googleId = profile.sub;
+    const name = profile.name || (email ? email.split('@')[0] : 'user');
+    const picture = profile.picture;
+
+    if (!email || !googleId) return res.status(400).send('Google 用户信息不完整');
+
+    let user = await User.findOne({ googleId });
+    if (!user) {
+      user = await User.findOne({ email });
+      if (user && !user.googleId) {
+        user.googleId = googleId;
+      }
+    }
+
+    if (!user) {
+      const username = await generateUniqueUsername(name);
+      const userNumber = await generateUniqueUserNumber();
+      const avatar = picture || buildDefaultAvatar(username);
+      user = await User.create({
+        username,
+        email,
+        password: await bcrypt.hash(crypto.randomBytes(16).toString('hex'), 10),
+        avatar,
+        userNumber,
+        googleId
+      });
+    }
+
+    if (user.isBanned) return res.status(403).send('账号已被封禁');
+
+    if (!user.userNumber) user.userNumber = await generateUniqueUserNumber();
+    if (!user.avatar) user.avatar = picture || buildDefaultAvatar(user.username);
+    user.lastLoginAt = new Date();
+    await user.save();
+
+    const token = generateToken(user._id);
+    const publicUser = toPublicUser(user);
+    const html = `<!doctype html><html><head><meta charset="utf-8"></head><body>
+<script>
+localStorage.setItem('token', ${JSON.stringify(token)});
+localStorage.setItem('user', ${JSON.stringify(publicUser)});
+location.href = '/';
+</script>
+</body></html>`;
+    res.send(html);
+  } catch (err) {
+    console.error('Google OAuth error:', err);
+    res.status(500).send('Google 登录失败');
   }
 });
 
