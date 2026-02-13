@@ -615,7 +615,7 @@ function displayMessages(messages) {
 function addMessageToUI(message, scroll = true) {
   const container = document.getElementById('messages-list');
   const messageEl = document.createElement('div');
-  messageEl.className = 'message' + (message.pinned ? ' pinned' : '');
+  messageEl.className = 'message' + (message.pinned ? ' pinned' : '') + (isOwner ? ' own' : '');
   messageEl.dataset.messageId = message.id;
 
   let replyHTML = '';

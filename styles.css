@@ -44,6 +44,7 @@ body {
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
   min-height: 100dvh;
   height: 100dvh;
 }
@@ -766,6 +767,9 @@ body {
 .message-content {
   flex: 1;
   max-width: 600px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
 }
 
 .message-header {
@@ -821,6 +825,9 @@ body {
   color: var(--text-primary);
   word-wrap: break-word;
   position: relative;
+  display: inline-block;
+  max-width: 80%;
+  width: fit-content;
 }
 
 .message.pinned .message-text::before {
@@ -838,6 +845,7 @@ body {
   margin-top: 8px;
   cursor: pointer;
   transition: var(--transition);
+  align-self: flex-start;
 }
 
 .message-image:hover {
@@ -851,6 +859,7 @@ body {
   border-radius: var(--radius-md);
   margin-top: 8px;
   background: #000;
+  align-self: flex-start;
 }
 
 .message-actions {
@@ -1459,7 +1468,9 @@ body {
 
   input,
   textarea,
-  select {
+  select,
+  .message-input,
+  .settings-fields input {
     font-size: 16px;
   }
 
@@ -1578,4 +1589,21 @@ body {
 
 .mb-2 {
   margin-bottom: 16px;
+}
+.message.own .message-content {
+  align-items: flex-end;
+}
+
+.message.own .message-text {
+  background: var(--primary-color);
+  color: #fff;
+}
+
+.message.own .message-reply-to {
+  align-self: flex-end;
+}
+
+.message.own .message-header {
+  justify-content: flex-end;
+  width: 100%;
 }
