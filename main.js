@@ -10,6 +10,17 @@ let onlineUsers = new Set();
 let pendingAttachment = null;
 let currentView = 'info';
 
+function getCurrentUserId() {
+  if (!currentUser) return null;
+  return currentUser.id || currentUser._id || null;
+}
+
+function ensureCurrentUserId() {
+  if (currentUser && !currentUser.id && currentUser._id) {
+    currentUser.id = currentUser._id;
+  }
+}
+
 // ============ 多标签页状态同步 ============
 const TabSync = (() => {
   const channelName = 'chatroom_sync';
@@ -46,6 +57,8 @@ function handleMessage(message) {
         setToken(message.token);
         setUser(message.user);
         currentUser = message.user;
+        ensureCurrentUserId();
+        setUser(currentUser);
         connectSocket();
         showPage('app-page');
         loadGroups();
@@ -242,7 +255,7 @@ function connectSocket() {
 
   // 用户正在输入
   socket.on('user_typing', (data) => {
-    if (data.groupId === currentGroupId && data.userId !== currentUser.id) {
+    if (data.groupId === currentGroupId && data.userId !== getCurrentUserId()) {
       showTypingIndicator(data.username);
     }
   });
@@ -356,6 +369,8 @@ document.getElementById('register-form')?.addEventListener('submit', async (e) =
     setUser(data.user);
     TabSync.publish({ type: 'login', token: data.token, user: data.user });
     currentUser = data.user;
+    ensureCurrentUserId();
+    setUser(currentUser);
 
     connectSocket();
     showPage('app-page');
@@ -382,6 +397,8 @@ document.getElementById('login-form')?.addEventListener('submit', async (e) => {
     setUser(data.user);
     TabSync.publish({ type: 'login', token: data.token, user: data.user });
     currentUser = data.user;
+    ensureCurrentUserId();
+    setUser(currentUser);
 
     connectSocket();
     showPage('app-page');
@@ -633,8 +650,9 @@ function addMessageToUI(message, scroll = true) {
     contentHTML = `<div class="message-text">${escapeHtml(message.content)}</div>`;
   }
 
-  const isOwner = currentUser && message.userId === currentUser.id;
-  const isAdmin = currentGroup && (currentGroup.ownerId === currentUser?.id || currentGroup.admins.includes(currentUser?.id));
+  const uid = getCurrentUserId();
+  const isOwner = uid && message.userId === uid;
+  const isAdmin = currentGroup && uid && (currentGroup.ownerId === uid || currentGroup.admins.includes(uid));
 
   let actionsHTML = '';
   if (currentUser) {
@@ -877,9 +895,10 @@ function sendMessage() {
   if ((!content && !pendingAttachment) || !socket || !currentGroupId) return;
 
   // 检查是否被禁言
+  const uid = getCurrentUserId();
   if (currentGroup?.muteAll && 
-      currentGroup.ownerId !== currentUser.id && 
-      !currentGroup.admins.includes(currentUser.id)) {
+      currentGroup.ownerId !== uid && 
+      !currentGroup.admins.includes(uid)) {
     showToast('当前群组已开启全员禁言', 'warning');
     return;
   }
@@ -1196,7 +1215,8 @@ function updatePinnedMessages(pinnedMessageIds) {
 
 function attachPinnedLongPress(bannerEl, messageId) {
   if (!bannerEl) return;
-  const isAdmin = currentGroup && (currentGroup.ownerId === currentUser?.id || currentGroup.admins.includes(currentUser?.id));
+  const uid = getCurrentUserId();
+  const isAdmin = currentGroup && uid && (currentGroup.ownerId === uid || currentGroup.admins.includes(uid));
   if (!isAdmin) return;
 
   let pressTimer = null;
@@ -1227,7 +1247,8 @@ function updateGroupPanel(group) {
   document.getElementById('detail-description').textContent = group.description || '暂无描述';
 
   // 管理员操作
-  const isAdmin = currentUser && (group.ownerId === currentUser.id || group.admins.includes(currentUser.id));
+  const uid = getCurrentUserId();
+  const isAdmin = uid && (group.ownerId === uid || group.admins.includes(uid));
   const adminActions = document.getElementById('admin-actions');
   if (group.type === 'dm') {
     adminActions.style.display = 'none';
@@ -1275,7 +1296,8 @@ function displayMembers(members) {
       roleText = '管理员';
     }
 
-    const isOwner = currentUser && currentGroup.ownerId === currentUser.id;
+    const uid = getCurrentUserId();
+    const isOwner = uid && currentGroup.ownerId === uid;
     const canManageAdmin = isOwner && member.id !== currentGroup.ownerId;
     const isMemberAdmin = currentGroup.admins.includes(member.id);
 
@@ -1720,7 +1742,8 @@ async function loadSettingsProfile() {
   try {
     const user = await apiRequest('/api/user/me');
     currentUser = user;
-    setUser(user);
+    ensureCurrentUserId();
+    setUser(currentUser);
     document.getElementById('settings-avatar-img').src = user.avatar;
     document.getElementById('settings-username').value = user.username || '';
     document.getElementById('settings-user-number').value = user.userNumber || '';
@@ -1774,7 +1797,8 @@ document.getElementById('settings-save-btn')?.addEventListener('click', async ()
       body: JSON.stringify({ username })
     });
     currentUser = user;
-    setUser(user);
+    ensureCurrentUserId();
+    setUser(currentUser);
     document.getElementById('current-username').textContent = user.username;
     showToast('已保存', 'success');
   } catch (err) {
@@ -1807,7 +1831,8 @@ async function init() {
       // 验证 token 是否有效
       const userData = await apiRequest('/api/user/me');
       currentUser = userData;
-      setUser(userData);
+      ensureCurrentUserId();
+      setUser(currentUser);
 
       // 显示头像和用户名
       document.getElementById('current-user-avatar').src = userData.avatar;

@@ -431,7 +431,7 @@ app.get('/api/user/me', authenticateToken, async (req, res) => {
     await User.findByIdAndUpdate(req.userId, { userNumber });
     req.user.userNumber = userNumber;
   }
-  res.json(req.user);
+  res.json(toPublicUser(req.user));
 });
 
 // 更新个人信息
