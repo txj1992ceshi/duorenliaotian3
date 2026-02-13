@@ -478,7 +478,7 @@ app.get('/auth/google/callback', async (req, res) => {
     const html = `<!doctype html><html><head><meta charset="utf-8"></head><body>
 <script>
 localStorage.setItem('token', ${JSON.stringify(token)});
-localStorage.setItem('user', ${JSON.stringify(publicUser)});
+localStorage.setItem('user', JSON.stringify(${JSON.stringify(publicUser)}));
 location.href = '/';
 </script>
 </body></html>`;
