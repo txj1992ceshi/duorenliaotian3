@@ -803,6 +803,11 @@ body {
   position: relative;
 }
 
+.message.own {
+  flex-direction: row-reverse;
+  justify-content: flex-end;
+}
+
 @keyframes messageSlideIn {
   from {
     opacity: 0;
