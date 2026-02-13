@@ -33,6 +33,7 @@ jobs:
           rsync -az --delete \
             --exclude '.git' \
             --exclude 'node_modules' \
+            --exclude '.env' \
             -e "ssh -p $PORT" \
             ./ \
             ${{ secrets.VULTR_USER }}@${{ secrets.VULTR_HOST }}:${{ secrets.VULTR_APP_DIR }}/
