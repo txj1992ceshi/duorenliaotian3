@@ -202,12 +202,18 @@ function sha256Hex(str) {
   return crypto.createHash('sha256').update(str).digest('hex');
 }
 
+function buildDefaultAvatar(username) {
+  const seed = encodeURIComponent(username || 'user');
+  return `https://api.dicebear.com/7.x/avataaars/svg?seed=${seed}`;
+}
+
 function toPublicUser(userDoc) {
+  const avatar = userDoc.avatar || buildDefaultAvatar(userDoc.username);
   return {
     id: userDoc._id.toString(),
     username: userDoc.username,
     email: userDoc.email,
-    avatar: userDoc.avatar,
+    avatar,
     role: userDoc.role,
     groups: userDoc.groups || [],
     isBanned: Boolean(userDoc.isBanned),
@@ -321,7 +327,7 @@ app.post('/api/register', async (req, res) => {
     if (existing) return res.status(400).json({ error: '用户名或邮箱已存在' });
 
     const hashed = await bcrypt.hash(password, 10);
-    const avatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(username)}`;
+    const avatar = buildDefaultAvatar(username);
 
     const userNumber = await generateUniqueUserNumber();
     let user = await User.create({ username, email, password: hashed, avatar, userNumber });
@@ -355,6 +361,9 @@ app.post('/api/login', async (req, res) => {
 
     if (!user.userNumber) {
       user.userNumber = await generateUniqueUserNumber();
+    }
+    if (!user.avatar) {
+      user.avatar = buildDefaultAvatar(user.username);
     }
     user.lastLoginAt = new Date();
     await user.save();
@@ -430,6 +439,11 @@ app.get('/api/user/me', authenticateToken, async (req, res) => {
     const userNumber = await generateUniqueUserNumber();
     await User.findByIdAndUpdate(req.userId, { userNumber });
     req.user.userNumber = userNumber;
+  }
+  if (!req.user.avatar) {
+    const avatar = buildDefaultAvatar(req.user.username);
+    await User.findByIdAndUpdate(req.userId, { avatar });
+    req.user.avatar = avatar;
   }
   res.json(toPublicUser(req.user));
 });

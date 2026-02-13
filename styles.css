@@ -1457,6 +1457,12 @@ body {
     display: none;
   }
 
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+
   .app-page {
     padding-bottom: 72px;
   }
