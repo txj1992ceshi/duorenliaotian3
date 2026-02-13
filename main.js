@@ -21,6 +21,22 @@ function ensureCurrentUserId() {
   }
 }
 
+function buildDefaultAvatar(username) {
+  const seed = encodeURIComponent(username || 'user');
+  return `https://api.dicebear.com/7.x/avataaars/svg?seed=${seed}`;
+}
+
+function applyAvatar(imgEl, url, username) {
+  if (!imgEl) return;
+  const fallback = buildDefaultAvatar(username);
+  const src = url && String(url).startsWith('http') ? url : fallback;
+  imgEl.src = src;
+  imgEl.onerror = () => {
+    imgEl.onerror = null;
+    imgEl.src = fallback;
+  };
+}
+
 // ============ 多标签页状态同步 ============
 const TabSync = (() => {
   const channelName = 'chatroom_sync';
@@ -371,6 +387,8 @@ document.getElementById('register-form')?.addEventListener('submit', async (e) =
     currentUser = data.user;
     ensureCurrentUserId();
     setUser(currentUser);
+    applyAvatar(document.getElementById('current-user-avatar'), currentUser.avatar, currentUser.username);
+    document.getElementById('current-username').textContent = currentUser.username;
 
     connectSocket();
     showPage('app-page');
@@ -399,6 +417,8 @@ document.getElementById('login-form')?.addEventListener('submit', async (e) => {
     currentUser = data.user;
     ensureCurrentUserId();
     setUser(currentUser);
+    applyAvatar(document.getElementById('current-user-avatar'), currentUser.avatar, currentUser.username);
+    document.getElementById('current-username').textContent = currentUser.username;
 
     connectSocket();
     showPage('app-page');
@@ -532,11 +552,31 @@ function displayGroups(groups) {
       <div class="group-item-name">${group.name}</div>
       <div class="group-item-info">
         <span>${group.members.length} 成员</span>
+        <div class="group-item-actions">
+          <button class="group-delete-btn">${group.type === 'dm' ? '删除' : '退出'}</button>
+        </div>
       </div>
     `;
 
     groupItem.addEventListener('click', () => {
       selectGroup(group.id);
+    });
+
+    groupItem.querySelector('.group-delete-btn')?.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const label = group.type === 'dm' ? '删除对话' : '退出群组';
+      if (!confirm(`确定要${label}吗？`)) return;
+      try {
+        await apiRequest(`/api/groups/${group.id}/leave`, { method: 'DELETE' });
+        if (currentGroupId === group.id) {
+          currentGroupId = null;
+          currentGroup = null;
+          setView('info');
+        }
+        await loadGroups();
+      } catch (err) {
+        showToast(err.message || '操作失败', 'error');
+      }
     });
 
     container.appendChild(groupItem);
@@ -667,7 +707,7 @@ function addMessageToUI(message, scroll = true) {
   }
 
   messageEl.innerHTML = `
-    <img src="${message.avatar}" class="message-avatar" alt="${message.username}">
+    <img src="" class="message-avatar" alt="${message.username}">
     <div class="message-content">
       <div class="message-header">
         <span class="message-username">${escapeHtml(message.username)}</span>
@@ -693,6 +733,8 @@ function addMessageToUI(message, scroll = true) {
       e.stopPropagation();
     });
   });
+
+  applyAvatar(messageEl.querySelector('.message-avatar'), message.avatar, message.username);
 
   container.appendChild(messageEl);
 
@@ -1302,7 +1344,7 @@ function displayMembers(members) {
     const isMemberAdmin = currentGroup.admins.includes(member.id);
 
     memberEl.innerHTML = `
-      <img src="${member.avatar}" class="member-avatar" alt="${member.username}">
+      <img src="" class="member-avatar" alt="${member.username}">
       <div class="member-info">
         <div class="member-name">${escapeHtml(member.username)}</div>
         ${roleText ? `<div class="member-role">${roleText}</div>` : ''}
@@ -1331,6 +1373,7 @@ function displayMembers(members) {
       });
     }
 
+    applyAvatar(memberEl.querySelector('.member-avatar'), member.avatar, member.username);
     container.appendChild(memberEl);
   });
 }
@@ -1617,7 +1660,7 @@ function renderFriends(friends) {
     const item = document.createElement('div');
     item.className = 'friend-item';
     item.innerHTML = `
-      <img src="${f.avatar}" alt="${f.username}">
+      <img src="" alt="${f.username}">
       <div class="member-info">
         <div class="member-name">${escapeHtml(f.username)}</div>
         <div class="member-role">ID: ${f.userNumber || '-'}</div>
@@ -1635,6 +1678,7 @@ function renderFriends(friends) {
         showToast(err.message || '打开私聊失败', 'error');
       }
     });
+    applyAvatar(item.querySelector('img'), f.avatar, f.username);
     container.appendChild(item);
   });
 }
@@ -1659,7 +1703,7 @@ function renderFriendRequests(requests) {
     const item = document.createElement('div');
     item.className = 'friend-item';
     item.innerHTML = `
-      <img src="${r.from.avatar}" alt="${r.from.username}">
+      <img src="" alt="${r.from.username}">
       <div class="member-info">
         <div class="member-name">${escapeHtml(r.from.username)}</div>
         <div class="member-role">ID: ${r.from.userNumber || '-'}</div>
@@ -1675,6 +1719,7 @@ function renderFriendRequests(requests) {
     item.querySelector('[data-action="reject"]')?.addEventListener('click', async () => {
       await handleFriendRequest(r.id, 'reject');
     });
+    applyAvatar(item.querySelector('img'), r.from.avatar, r.from.username);
     container.appendChild(item);
   });
 }
@@ -1744,7 +1789,7 @@ async function loadSettingsProfile() {
     currentUser = user;
     ensureCurrentUserId();
     setUser(currentUser);
-    document.getElementById('settings-avatar-img').src = user.avatar;
+    applyAvatar(document.getElementById('settings-avatar-img'), user.avatar, user.username);
     document.getElementById('settings-username').value = user.username || '';
     document.getElementById('settings-user-number').value = user.userNumber || '';
   } catch (err) {
@@ -1800,6 +1845,7 @@ document.getElementById('settings-save-btn')?.addEventListener('click', async ()
     ensureCurrentUserId();
     setUser(currentUser);
     document.getElementById('current-username').textContent = user.username;
+    applyAvatar(document.getElementById('current-user-avatar'), user.avatar, user.username);
     showToast('已保存', 'success');
   } catch (err) {
     showToast(err.message || '保存失败', 'error');
@@ -1835,7 +1881,7 @@ async function init() {
       setUser(currentUser);
 
       // 显示头像和用户名
-      document.getElementById('current-user-avatar').src = userData.avatar;
+      applyAvatar(document.getElementById('current-user-avatar'), userData.avatar, userData.username);
       document.getElementById('current-username').textContent = userData.username;
 
       connectSocket();

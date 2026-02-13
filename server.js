@@ -662,6 +662,31 @@ app.post('/api/groups/:groupId/join', authenticateToken, async (req, res) => {
   }
 });
 
+// 退出/删除对话
+app.delete('/api/groups/:groupId/leave', authenticateToken, async (req, res) => {
+  try {
+    const group = await Group.findById(req.params.groupId);
+    if (!group) return res.status(404).json({ error: '群组不存在' });
+    if (!ensureIsGroupMember({ groupDoc: group, userId: req.userId })) {
+      return res.status(400).json({ error: '您不是该群组成员' });
+    }
+    if (group.type !== 'dm' && group.ownerId.toString() === req.userId.toString()) {
+      return res.status(400).json({ error: '群主不能退出群组' });
+    }
+
+    group.members = (group.members || []).filter((m) => m.toString() !== req.userId.toString());
+    group.admins = (group.admins || []).filter((m) => m.toString() !== req.userId.toString());
+    group.joinRequests = (group.joinRequests || []).filter((m) => m.toString() !== req.userId.toString());
+    await group.save();
+
+    await User.findByIdAndUpdate(req.userId, { $pull: { groups: group._id } });
+    res.json({ status: 'left' });
+  } catch (err) {
+    console.error('退出群组错误:', err);
+    res.status(500).json({ error: '退出失败' });
+  }
+});
+
 // 获取用户的所有群组
 app.get('/api/groups', authenticateToken, async (req, res) => {
   try {

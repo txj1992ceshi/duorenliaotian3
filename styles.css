@@ -45,6 +45,7 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
+  touch-action: manipulation;
   min-height: 100dvh;
   height: 100dvh;
 }
@@ -434,6 +435,24 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.group-item-actions {
+  margin-left: auto;
+}
+
+.group-delete-btn {
+  border: none;
+  background: transparent;
+  color: var(--danger-color);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+.group-delete-btn:hover {
+  background: rgba(255, 59, 48, 0.08);
 }
 
 .unread-badge {
@@ -1021,6 +1040,7 @@ body {
   max-height: 120px;
   padding: 8px;
   color: var(--text-primary);
+  touch-action: manipulation;
 }
 
 .message-input:focus {
@@ -1471,7 +1491,7 @@ body {
   select,
   .message-input,
   .settings-fields input {
-    font-size: 16px;
+    font-size: 16px !important;
   }
 
   .app-page {
