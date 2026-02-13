@@ -9,6 +9,8 @@ let typingTimeout = null;
 let onlineUsers = new Set();
 let pendingAttachment = null;
 let currentView = 'info';
+let groupsListMode = 'chat';
+let groupsCache = [];
 
 function getCurrentUserId() {
   if (!currentUser) return null;
@@ -533,55 +535,84 @@ function logout({ broadcast = true } = {}) {
 async function loadGroups() {
   try {
     const groups = await apiRequest('/api/groups');
-    displayGroups(groups);
+    groupsCache = groups || [];
+    displayGroups(groupsCache);
   } catch (error) {
     console.error('加载群组失败:', error);
   }
+}
+
+function getHiddenGroupIds() {
+  const uid = getCurrentUserId() || 'anon';
+  const key = `hidden_groups_${uid}`;
+  try {
+    const raw = localStorage.getItem(key);
+    return new Set(raw ? JSON.parse(raw) : []);
+  } catch (_) {
+    return new Set();
+  }
+}
+
+function setHiddenGroupIds(set) {
+  const uid = getCurrentUserId() || 'anon';
+  const key = `hidden_groups_${uid}`;
+  localStorage.setItem(key, JSON.stringify(Array.from(set)));
 }
 
 function displayGroups(groups) {
   const container = document.getElementById('groups-container');
   container.innerHTML = '';
 
-  if (groups.length === 0) {
+  const hiddenIds = getHiddenGroupIds();
+  const list = groupsListMode === 'all'
+    ? groups
+    : groups.filter((g) => !hiddenIds.has(g.id));
+
+  if (list.length === 0) {
     container.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-secondary); font-size: 14px;">暂无群组<br>创建或加入一个群组开始聊天</div>';
     return;
   }
 
-  groups.forEach(group => {
+  list.forEach(group => {
     const groupItem = document.createElement('div');
     groupItem.className = 'group-item';
     groupItem.dataset.groupId = group.id;
+
+    const isHidden = hiddenIds.has(group.id);
+    const actionLabel = groupsListMode === 'all' && isHidden ? '恢复' : '删除';
     
     groupItem.innerHTML = `
       <div class="group-item-name">${group.name}</div>
       <div class="group-item-info">
         <span>${group.members.length} 成员</span>
         <div class="group-item-actions">
-          <button class="group-delete-btn">${group.type === 'dm' ? '删除' : '退出'}</button>
+          <button class="group-delete-btn">${actionLabel}</button>
         </div>
       </div>
     `;
 
     groupItem.addEventListener('click', () => {
+      if (isHidden) return;
       selectGroup(group.id);
     });
 
     groupItem.querySelector('.group-delete-btn')?.addEventListener('click', async (e) => {
       e.stopPropagation();
-      const label = group.type === 'dm' ? '删除对话' : '退出群组';
+      const label = isHidden ? '恢复对话' : '删除对话';
       if (!confirm(`确定要${label}吗？`)) return;
-      try {
-        await apiRequest(`/api/groups/${group.id}/leave`, { method: 'DELETE' });
+      const next = getHiddenGroupIds();
+      if (isHidden) {
+        next.delete(group.id);
+      } else {
+        next.add(group.id);
         if (currentGroupId === group.id) {
           currentGroupId = null;
           currentGroup = null;
           setView('info');
         }
-        await loadGroups();
-      } catch (err) {
-        showToast(err.message || '操作失败', 'error');
       }
+      setHiddenGroupIds(next);
+      displayGroups(groupsCache);
     });
 
     container.appendChild(groupItem);
@@ -660,6 +691,9 @@ function displayMessages(messages) {
 function addMessageToUI(message, scroll = true) {
   const container = document.getElementById('messages-list');
   const messageEl = document.createElement('div');
+  const uid = getCurrentUserId();
+  const isOwner = uid && message.userId === uid;
+  const isAdmin = currentGroup && uid && (currentGroup.ownerId === uid || currentGroup.admins.includes(uid));
   messageEl.className = 'message' + (message.pinned ? ' pinned' : '') + (isOwner ? ' own' : '');
   messageEl.dataset.messageId = message.id;
 
@@ -694,10 +728,6 @@ function addMessageToUI(message, scroll = true) {
   } else {
     contentHTML = `<div class="message-text">${escapeHtml(message.content)}</div>`;
   }
-
-  const uid = getCurrentUserId();
-  const isOwner = uid && message.userId === uid;
-  const isAdmin = currentGroup && uid && (currentGroup.ownerId === uid || currentGroup.admins.includes(uid));
 
   let actionsHTML = '';
   if (currentUser) {
@@ -1197,10 +1227,14 @@ sidebarBackdrop?.addEventListener('click', closeSidebar);
 
 // 移动端底部按钮
 document.getElementById('tab-groups')?.addEventListener('click', () => {
+  groupsListMode = 'all';
+  displayGroups(groupsCache);
   setView('info');
   openSidebar();
 });
 document.getElementById('tab-info')?.addEventListener('click', () => {
+  groupsListMode = 'chat';
+  displayGroups(groupsCache);
   setView('info');
   openSidebar();
 });
