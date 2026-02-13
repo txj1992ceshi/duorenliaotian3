@@ -1191,6 +1191,10 @@ sidebarToggle?.addEventListener('click', () => {
 sidebarBackdrop?.addEventListener('click', closeSidebar);
 
 // 移动端底部按钮
+document.getElementById('tab-groups')?.addEventListener('click', () => {
+  setView('info');
+  openSidebar();
+});
 document.getElementById('tab-info')?.addEventListener('click', () => {
   setView('info');
   openSidebar();
