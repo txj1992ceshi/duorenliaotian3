@@ -1075,11 +1075,36 @@ function updatePinnedMessages(pinnedMessageIds) {
       
       // 点击跳转到第一条置顶消息
       banner.onclick = () => scrollToMessage(pinnedMessageIds[0]);
+      attachPinnedLongPress(banner, pinnedMessageIds[0]);
       return;
     }
   }
 
   banner.style.display = 'none';
+}
+
+function attachPinnedLongPress(bannerEl, messageId) {
+  if (!bannerEl) return;
+  const isAdmin = currentGroup && (currentGroup.ownerId === currentUser?.id || currentGroup.admins.includes(currentUser?.id));
+  if (!isAdmin) return;
+
+  let pressTimer = null;
+  const start = () => {
+    clearTimeout(pressTimer);
+    pressTimer = setTimeout(() => {
+      if (confirm('取消置顶这条消息？')) {
+        socket?.emit('pin_message', { messageId });
+      }
+    }, 600);
+  };
+  const cancel = () => {
+    clearTimeout(pressTimer);
+  };
+
+  bannerEl.onpointerdown = start;
+  bannerEl.onpointerup = cancel;
+  bannerEl.onpointerleave = cancel;
+  bannerEl.onpointercancel = cancel;
 }
 
 // ============ 右侧面板 ============
