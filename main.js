@@ -1024,6 +1024,17 @@ const sidebarEl = document.querySelector('.sidebar');
 const sidebarBackdrop = document.getElementById('sidebar-backdrop');
 const panelBackdrop = document.getElementById('panel-backdrop');
 const mobileTabbar = document.getElementById('mobile-tabbar');
+const appPageEl = document.getElementById('app-page');
+
+function syncMobileTabbar() {
+  if (!mobileTabbar) return;
+  const isAppVisible = appPageEl && appPageEl.style.display !== 'none';
+  if (isAppVisible && window.innerWidth <= 768) {
+    mobileTabbar.style.display = 'flex';
+  } else {
+    mobileTabbar.style.display = 'none';
+  }
+}
 
 function openSidebar() {
   sidebarEl?.classList.add('open');
@@ -1062,6 +1073,8 @@ document.getElementById('tab-info')?.addEventListener('click', () => {
   panel.style.display = next;
   if (panelBackdrop) panelBackdrop.style.display = next === 'flex' ? 'block' : 'none';
 });
+
+window.addEventListener('resize', syncMobileTabbar);
 
 // ============ 正在输入指示器 ============
 
