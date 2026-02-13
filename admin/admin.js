@@ -49,21 +49,27 @@ async function loadUsers() {
   tbody.innerHTML = '';
   users.forEach((u) => {
     const tr = document.createElement('tr');
+    const statusText = u.isBanned ? '已封禁' : '正常';
+    const statusClass = u.isBanned ? 'badge badge-danger' : 'badge badge-ok';
+    const actionText = u.isBanned ? '解封' : '封禁';
     tr.innerHTML = `
-      <td>${u.username || '-'}</td>
-      <td>${u.email || '-'}</td>
-      <td>${formatDate(u.createdAt)}</td>
-      <td>${formatDate(u.lastLoginAt)}</td>
-      <td>${u.daysSinceLastLogin ?? '-'}</td>
-      <td>
+      <td data-label="用户名">${u.username || '-'}</td>
+      <td data-label="邮箱">${u.email || '-'}</td>
+      <td data-label="注册时间">${formatDate(u.createdAt)}</td>
+      <td data-label="上次登录">${formatDate(u.lastLoginAt)}</td>
+      <td data-label="未登录天数">${u.daysSinceLastLogin ?? '-'}</td>
+      <td data-label="状态"><span class="${statusClass}">${statusText}</span></td>
+      <td data-label="操作">
         <div class="action-row">
           <input class="input" type="password" placeholder="新密码" />
           <button class="btn-small">改密码</button>
+          <button class="btn-small btn-ghost" data-action="toggle-ban">${actionText}</button>
         </div>
       </td>
     `;
     const input = tr.querySelector('input');
     const btn = tr.querySelector('button');
+    const banBtn = tr.querySelector('[data-action="toggle-ban"]');
     btn.addEventListener('click', async () => {
       const newPassword = input.value.trim();
       if (!newPassword || newPassword.length < 6) {
@@ -76,6 +82,16 @@ async function loadUsers() {
       });
       input.value = '';
       alert('密码已更新');
+    });
+    banBtn.addEventListener('click', async () => {
+      const next = !u.isBanned;
+      const label = next ? '封禁' : '解封';
+      if (!confirm(`确定要${label}该用户吗？`)) return;
+      await api(`/api/admin/users/${u.id}/ban`, {
+        method: 'PUT',
+        body: JSON.stringify({ banned: next })
+      });
+      refreshAll().catch((e) => alert(e.message));
     });
     tbody.appendChild(tr);
   });

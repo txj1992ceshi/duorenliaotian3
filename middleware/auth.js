@@ -18,6 +18,8 @@ async function authenticateToken(req, res, next) {
 
     req.userId = decoded.userId;
     req.user = await User.findById(req.userId).select('-password').lean();
+    if (!req.user) return res.status(401).json({ error: '用户不存在' });
+    if (req.user.isBanned) return res.status(403).json({ error: '账号已被封禁' });
     next();
   } catch (err) {
     return res.status(403).json({ error: '无效的令牌' });

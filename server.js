@@ -208,7 +208,8 @@ function toPublicUser(userDoc) {
     email: userDoc.email,
     avatar: userDoc.avatar,
     role: userDoc.role,
-    groups: userDoc.groups || []
+    groups: userDoc.groups || [],
+    isBanned: Boolean(userDoc.isBanned)
   };
 }
 
@@ -328,6 +329,7 @@ app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
     const user = await User.findOne({ username });
     if (!user) return res.status(401).json({ error: '用户名或密码错误' });
+    if (user.isBanned) return res.status(403).json({ error: '账号已被封禁' });
 
     const ok = await bcrypt.compare(password, user.password);
     if (!ok) return res.status(401).json({ error: '用户名或密码错误' });
@@ -670,10 +672,23 @@ app.get('/api/admin/users', basicAuth, async (req, res) => {
       role: u.role,
       createdAt: u.createdAt || null,
       lastLoginAt: u.lastLoginAt || null,
-      daysSinceLastLogin: daysSince
+      daysSinceLastLogin: daysSince,
+      isBanned: Boolean(u.isBanned),
+      bannedAt: u.bannedAt || null
     };
   });
   res.json(result);
+});
+
+app.put('/api/admin/users/:id/ban', basicAuth, async (req, res) => {
+  const uid = req.params.id;
+  const { banned } = req.body || {};
+  const user = await User.findById(uid);
+  if (!user) return res.status(404).json({ error: '用户不存在' });
+  user.isBanned = Boolean(banned);
+  user.bannedAt = user.isBanned ? new Date() : null;
+  await user.save();
+  res.json({ id: user._id.toString(), isBanned: user.isBanned, bannedAt: user.bannedAt });
 });
 
 app.put('/api/admin/users/:id/password', basicAuth, async (req, res) => {
@@ -734,11 +749,16 @@ io.on('connection', (socket) => {
       const decoded = jwt.verify(token, JWT_SECRET);
       if (!decoded) return;
 
-      socket.userId = decoded.userId;
-      const { wasEmpty } = markOnline(decoded.userId, socket.id);
-
       const user = await User.findById(decoded.userId);
       if (!user) return;
+      if (user.isBanned) {
+        socket.emit('error', { message: '账号已被封禁' });
+        socket.disconnect(true);
+        return;
+      }
+
+      socket.userId = decoded.userId;
+      const { wasEmpty } = markOnline(decoded.userId, socket.id);
 
       // 加入用户所有群组房间
       for (const gid of user.groups || []) {
