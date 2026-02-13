@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Console</title>
+  <link rel="stylesheet" href="admin.css" />
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div>
+        <h1>Admin Console</h1>
+        <p class="sub">轻量后台（Basic Auth）</p>
+      </div>
+      <div class="actions">
+        <button id="refresh-btn" class="btn">刷新</button>
+        <button id="logout-btn" class="btn btn-secondary">退出</button>
+      </div>
+    </header>
+
+    <section class="cards">
+      <div class="card">
+        <div class="label">用户数</div>
+        <div id="stat-users" class="value">-</div>
+      </div>
+      <div class="card">
+        <div class="label">群组数</div>
+        <div id="stat-groups" class="value">-</div>
+      </div>
+      <div class="card">
+        <div class="label">消息数</div>
+        <div id="stat-messages" class="value">-</div>
+      </div>
+      <div class="card">
+        <div class="label">在线数</div>
+        <div id="stat-online" class="value">-</div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>用户列表</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>用户名</th>
+              <th>邮箱</th>
+              <th>注册时间</th>
+              <th>上次登录</th>
+              <th>未登录天数</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="users-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <script src="admin.js"></script>
+</body>
+</html>

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>聊天室 - 现代化即时通讯</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=2026-02-13">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -151,6 +151,7 @@
         <div id="groups-container"></div>
       </div>
     </aside>
+    <div id="sidebar-backdrop" class="sidebar-backdrop" style="display: none;"></div>
 
     <!-- 主内容区 -->
     <main class="main-content">
@@ -184,6 +185,13 @@
             <div id="group-members-count" class="group-members-count">0 成员</div>
           </div>
           <div class="chat-header-actions">
+            <button id="sidebar-toggle" class="icon-btn mobile-only" title="群组列表">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M3 5C3 4.44772 3.44772 4 4 4H16C16.5523 4 17 4.44772 17 5C17 5.55228 16.5523 6 16 6H4C3.44772 6 3 5.55228 3 5Z"/>
+                <path d="M3 10C3 9.44772 3.44772 9 4 9H16C16.5523 9 17 9.44772 17 10C17 10.5523 16.5523 11 16 11H4C3.44772 11 3 10.5523 3 10Z"/>
+                <path d="M3 15C3 14.4477 3.44772 14 4 14H16C16.5523 14 17 14.4477 17 15C17 15.5523 16.5523 16 16 16H4C3.44772 16 3 15.5523 3 15Z"/>
+              </svg>
+            </button>
             <button id="group-info-btn" class="icon-btn" title="群组信息">
               <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
                 <path d="M10 2C10.5523 2 11 2.44772 11 3V3.5C11 4.05228 10.5523 4.5 10 4.5C9.44772 4.5 9 4.05228 9 3.5V3C9 2.44772 9.44772 2 10 2Z"/>
@@ -232,6 +240,18 @@
           </div>
         </div>
 
+        <!-- 附件预览 -->
+        <div id="attachment-preview" class="attachment-preview" style="display: none;">
+          <div class="attachment-preview-content">
+            <div id="attachment-media" class="attachment-media"></div>
+            <div class="attachment-meta">
+              <div id="attachment-name" class="attachment-name"></div>
+              <div class="attachment-hint">发送时可附带文字说明</div>
+            </div>
+            <button id="cancel-attachment" class="cancel-reply">×</button>
+          </div>
+        </div>
+
         <!-- 消息输入区 -->
         <div class="message-input-container">
           <div class="message-input-wrapper">
@@ -267,16 +287,16 @@
           <!-- Emoji 选择器 -->
           <div id="emoji-picker" class="emoji-picker" style="display: none;">
             <div class="emoji-grid">
-              😀 😃 😄 😁 😆 😅 😂 🤣 😊 😇
-              🙂 🙃 😉 😌 😍 🥰 😘 😗 😙 😚
-              😋 😛 😝 😜 🤪 🤨 🧐 🤓 😎 🤩
-              🥳 😏 😒 😞 😔 😟 😕 🙁 😣 😖
-              😫 😩 🥺 😢 😭 😤 😠 😡 🤬 🤯
-              😳 🥵 🥶 😱 😨 😰 😥 😓 🤗 🤔
-              🤭 🤫 🤥 😶 😐 😑 😬 🙄 😯 😦
-              😧 😮 😲 🥱 😴 🤤 😪 😵 🤐 🥴
-              🤢 🤮 🤧 😷 🤒 🤕 🤑 🤠 👍 👎
-              👋 🤚 🖐 ✋ 🖖 👌 🤏 ✌️ 🤞 🤟
+              <span>😀</span><span>😃</span><span>😄</span><span>😁</span><span>😆</span><span>😅</span><span>😂</span><span>🤣</span><span>😊</span><span>😇</span>
+              <span>🙂</span><span>🙃</span><span>😉</span><span>😌</span><span>😍</span><span>🥰</span><span>😘</span><span>😗</span><span>😙</span><span>😚</span>
+              <span>😋</span><span>😛</span><span>😝</span><span>😜</span><span>🤪</span><span>🤨</span><span>🧐</span><span>🤓</span><span>😎</span><span>🤩</span>
+              <span>🥳</span><span>😏</span><span>😒</span><span>😞</span><span>😔</span><span>😟</span><span>😕</span><span>🙁</span><span>😣</span><span>😖</span>
+              <span>😫</span><span>😩</span><span>🥺</span><span>😢</span><span>😭</span><span>😤</span><span>😠</span><span>😡</span><span>🤬</span><span>🤯</span>
+              <span>😳</span><span>🥵</span><span>🥶</span><span>😱</span><span>😨</span><span>😰</span><span>😥</span><span>😓</span><span>🤗</span><span>🤔</span>
+              <span>🤭</span><span>🤫</span><span>🤥</span><span>😶</span><span>😐</span><span>😑</span><span>😬</span><span>🙄</span><span>😯</span><span>😦</span>
+              <span>😧</span><span>😮</span><span>😲</span><span>🥱</span><span>😴</span><span>🤤</span><span>😪</span><span>😵</span><span>🤐</span><span>🥴</span>
+              <span>🤢</span><span>🤮</span><span>🤧</span><span>😷</span><span>🤒</span><span>🤕</span><span>🤑</span><span>🤠</span><span>👍</span><span>👎</span>
+              <span>👋</span><span>🤚</span><span>🖐</span><span>✋</span><span>🖖</span><span>👌</span><span>🤏</span><span>✌️</span><span>🤞</span><span>🤟</span>
             </div>
           </div>
         </div>
@@ -332,6 +352,15 @@
         </div>
       </div>
     </aside>
+    <div id="panel-backdrop" class="panel-backdrop" style="display: none;"></div>
+  </div>
+
+  <!-- 图片预览弹窗 -->
+  <div id="image-modal" class="image-modal" style="display: none;">
+    <div class="image-modal-backdrop"></div>
+    <div class="image-modal-content">
+      <img id="image-modal-img" src="" alt="预览" />
+    </div>
   </div>
 
   <!-- 模态框 -->
@@ -401,6 +430,6 @@
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script src="main.js"></script>
+  <script src="main.js?v=2026-02-13"></script>
 </body>
 </html>

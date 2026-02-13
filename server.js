@@ -43,6 +43,8 @@ const IMAGE_MAX_BYTES = Number.parseInt(process.env.IMAGE_MAX_BYTES || String(5 
 const VIDEO_MAX_BYTES = Number.parseInt(process.env.VIDEO_MAX_BYTES || String(20 * 1024 * 1024), 10);
 
 const SMTP_ENABLED = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+const ADMIN_USER = process.env.ADMIN_USER || 'tt555666';
+const ADMIN_PASS = process.env.ADMIN_PASS || 'Aa112211';
 
 // =========================
 // MongoDB
@@ -72,6 +74,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // 静态资源：当前仓库直接把前端文件放在根目录（index.html / main.js / styles.css 等）
 app.use(express.static(__dirname));
+app.use('/admin', express.static(path.join(__dirname, 'admin')));
 
 // 本地 uploads 作为开发兜底；生产建议走 Cloudinary
 const uploadsDir = path.join(__dirname, 'uploads');
@@ -266,6 +269,22 @@ function ensureIsGroupMember({ groupDoc, userId }) {
   return (groupDoc.members || []).some((m) => m.toString() === uid);
 }
 
+function basicAuth(req, res, next) {
+  const header = req.headers.authorization || '';
+  if (!header.startsWith('Basic ')) {
+    res.set('WWW-Authenticate', 'Basic realm="Admin"');
+    return res.status(401).json({ error: '需要管理员登录' });
+  }
+  const token = header.replace('Basic ', '');
+  const decoded = Buffer.from(token, 'base64').toString('utf8');
+  const [user, pass] = decoded.split(':');
+  if (user !== ADMIN_USER || pass !== ADMIN_PASS) {
+    res.set('WWW-Authenticate', 'Basic realm="Admin"');
+    return res.status(401).json({ error: '账号或密码错误' });
+  }
+  return next();
+}
+
 // =========================
 // API
 // =========================
@@ -312,6 +331,9 @@ app.post('/api/login', async (req, res) => {
 
     const ok = await bcrypt.compare(password, user.password);
     if (!ok) return res.status(401).json({ error: '用户名或密码错误' });
+
+    user.lastLoginAt = new Date();
+    await user.save();
 
     const token = generateToken(user._id);
     res.json({ token, user: toPublicUser(user) });
@@ -633,35 +655,46 @@ app.post('/api/upload', authenticateToken, upload.any(), async (req, res) => {
 });
 
 // Admin routes（全局管理员）
-app.get('/api/admin/users', authenticateToken, isAdmin, async (req, res) => {
-  const users = await User.find().select('-password').lean();
-  res.json(users);
+app.get('/api/admin/users', basicAuth, async (req, res) => {
+  const users = await User.find().lean();
+  const now = Date.now();
+  const result = users.map((u) => {
+    const last = u.lastLoginAt ? new Date(u.lastLoginAt).getTime() : null;
+    const created = u.createdAt ? new Date(u.createdAt).getTime() : null;
+    const base = last || created || null;
+    const daysSince = base ? Math.floor((now - base) / (1000 * 60 * 60 * 24)) : null;
+    return {
+      id: u._id.toString(),
+      username: u.username,
+      email: u.email,
+      role: u.role,
+      createdAt: u.createdAt || null,
+      lastLoginAt: u.lastLoginAt || null,
+      daysSinceLastLogin: daysSince
+    };
+  });
+  res.json(result);
 });
 
-app.delete('/api/admin/users/:id', authenticateToken, isAdmin, async (req, res) => {
+app.put('/api/admin/users/:id/password', basicAuth, async (req, res) => {
   const uid = req.params.id;
-  await User.findByIdAndDelete(uid);
-  await Message.deleteMany({ userId: uid });
-  await Group.updateMany({}, { $pull: { members: mongoose.Types.ObjectId(uid), admins: mongoose.Types.ObjectId(uid) } });
-  res.json({ message: '用户已删除' });
+  const { newPassword } = req.body || {};
+  if (!newPassword || String(newPassword).length < 6) {
+    return res.status(400).json({ error: '新密码至少 6 位' });
+  }
+  const user = await User.findById(uid);
+  if (!user) return res.status(404).json({ error: '用户不存在' });
+  user.password = await bcrypt.hash(String(newPassword), 10);
+  await user.save();
+  res.json({ message: '密码已更新' });
 });
 
-app.get('/api/admin/stats', authenticateToken, isAdmin, async (req, res) => {
+app.get('/api/admin/stats', basicAuth, async (req, res) => {
   const usersCount = await User.countDocuments();
   const groupsCount = await Group.countDocuments();
   const messagesCount = await Message.countDocuments();
   const onlineCount = Array.from(onlineUsers.values()).reduce((sum, set) => sum + (set?.size || 0), 0);
   res.json({ usersCount, groupsCount, messagesCount, onlineCount });
-});
-
-app.post('/api/admin/messages/cleanup', authenticateToken, isAdmin, async (req, res) => {
-  const total = await Message.countDocuments();
-  if (total <= MAX_MESSAGES) return res.json({ message: '无需清理', total });
-  const exceed = total - MAX_MESSAGES;
-  const toDelete = await Message.find().sort({ createdAt: 1 }).limit(exceed).select('_id');
-  const ids = toDelete.map((d) => d._id);
-  await Message.deleteMany({ _id: { $in: ids } });
-  res.json({ message: `已删除 ${ids.length} 条消息`, totalAfter: await Message.countDocuments() });
 });
 
 // =========================
@@ -942,4 +975,3 @@ server.listen(PORT, () => {
     console.warn('⚠️ 未配置 SMTP，忘记密码邮件将无法发送');
   }
 });
-

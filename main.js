@@ -7,6 +7,7 @@ let currentGroup = null;
 let replyToMessage = null;
 let typingTimeout = null;
 let onlineUsers = new Set();
+let pendingAttachment = null;
 
 // ============ 多标签页状态同步 ============
 const TabSync = (() => {
@@ -457,6 +458,10 @@ async function selectGroup(groupId) {
   // 加载群组详情和消息
   await loadGroupDetails(groupId);
   await loadMessages(groupId);
+
+  if (sidebarEl?.classList.contains('open')) {
+    closeSidebar();
+  }
 }
 
 async function loadGroupDetails(groupId) {
@@ -526,12 +531,18 @@ function addMessageToUI(message, scroll = true) {
 
   let contentHTML = '';
   if (message.type === 'image') {
-    contentHTML = `<img src="${message.imageUrl}" class="message-image" alt="图片" onclick="window.open('${message.imageUrl}', '_blank')">`;
+    const caption = message.content && message.content !== '[图片]' ? `<div class="message-text">${escapeHtml(message.content)}</div>` : '';
+    contentHTML = `
+      <img src="${message.imageUrl}" class="message-image" alt="图片" onclick="openImageModal('${message.imageUrl}')">
+      ${caption}
+    `;
   } else if (message.type === 'video') {
+    const caption = message.content && message.content !== '[视频]' ? `<div class="message-text">${escapeHtml(message.content)}</div>` : '';
     contentHTML = `
       <video class="message-video" controls preload="metadata" src="${message.imageUrl}">
         您的浏览器不支持 video 标签
       </video>
+      ${caption}
     `;
   } else {
     contentHTML = `<div class="message-text">${escapeHtml(message.content)}</div>`;
@@ -566,12 +577,38 @@ function addMessageToUI(message, scroll = true) {
     </div>
   `;
 
+  // 点击消息显示/隐藏操作栏（移动端友好）
+  messageEl.addEventListener('click', (e) => {
+    if (e.target.closest('.message-action-btn')) return;
+    const already = messageEl.classList.contains('show-actions');
+    closeAllMessageActions();
+    if (!already) messageEl.classList.add('show-actions');
+  });
+
+  messageEl.querySelectorAll('.message-action-btn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+    });
+  });
+
   container.appendChild(messageEl);
 
   if (scroll) {
     scrollToBottom();
   }
 }
+
+function closeAllMessageActions() {
+  document.querySelectorAll('.message.show-actions').forEach((el) => {
+    el.classList.remove('show-actions');
+  });
+}
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.message')) {
+    closeAllMessageActions();
+  }
+});
 
 function updateMessageInUI(message) {
   const messageEl = document.querySelector(`[data-message-id="${message.id}"]`);
@@ -699,6 +736,23 @@ function pinMessage(messageId) {
   socket.emit('pin_message', { messageId });
 }
 
+// ============ 图片预览弹窗 ============
+function openImageModal(url) {
+  const modal = document.getElementById('image-modal');
+  const img = document.getElementById('image-modal-img');
+  img.src = url;
+  modal.style.display = 'flex';
+}
+
+function closeImageModal() {
+  const modal = document.getElementById('image-modal');
+  const img = document.getElementById('image-modal-img');
+  img.src = '';
+  modal.style.display = 'none';
+}
+
+document.querySelector('#image-modal .image-modal-backdrop')?.addEventListener('click', closeImageModal);
+
 // ============ 消息发送 ============
 
 const messageInput = document.getElementById('message-input');
@@ -735,7 +789,7 @@ messageInput?.addEventListener('keydown', (e) => {
 
 function sendMessage() {
   const content = messageInput.value.trim();
-  if (!content || !socket || !currentGroupId) return;
+  if ((!content && !pendingAttachment) || !socket || !currentGroupId) return;
 
   // 检查是否被禁言
   if (currentGroup?.muteAll && 
@@ -745,14 +799,17 @@ function sendMessage() {
     return;
   }
 
-  const messageData = {
-    groupId: currentGroupId,
-    content,
-    type: 'text',
-    replyTo: replyToMessage
-  };
-
-  socket.emit('send_message', messageData);
+  if (pendingAttachment) {
+    uploadAndSendMedia(pendingAttachment.file, content);
+  } else {
+    const messageData = {
+      groupId: currentGroupId,
+      content,
+      type: 'text',
+      replyTo: replyToMessage
+    };
+    socket.emit('send_message', messageData);
+  }
 
   messageInput.value = '';
   messageInput.style.height = 'auto';
@@ -776,7 +833,7 @@ imageInput?.addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
 
-  await uploadAndSendMedia(file);
+  setAttachment(file);
   imageInput.value = '';
 });
 
@@ -790,14 +847,54 @@ messageInput?.addEventListener('paste', async (e) => {
       e.preventDefault();
       const file = item.getAsFile();
       if (file) {
-        await uploadAndSendMedia(file);
+        setAttachment(file);
       }
       break;
     }
   }
 });
 
-async function uploadAndSendMedia(file) {
+function setAttachment(file) {
+  if (!file) return;
+  if (pendingAttachment?.file) {
+    const shouldReplace = confirm('已存在待发送的附件，是否替换？');
+    if (!shouldReplace) return;
+  }
+  clearAttachment();
+  const url = URL.createObjectURL(file);
+  const isVideo = file.type === 'video/mp4' || file.name.toLowerCase().endsWith('.mp4');
+  pendingAttachment = { file, url, isVideo };
+
+  const container = document.getElementById('attachment-preview');
+  const media = document.getElementById('attachment-media');
+  const name = document.getElementById('attachment-name');
+  if (isVideo) {
+    media.innerHTML = `<video src="${url}" muted></video>`;
+  } else {
+    media.innerHTML = `<img src="${url}" alt="预览">`;
+  }
+  name.textContent = file.name || (isVideo ? '视频' : '图片');
+  container.style.display = 'block';
+}
+
+function clearAttachment() {
+  if (pendingAttachment?.url) {
+    URL.revokeObjectURL(pendingAttachment.url);
+  }
+  pendingAttachment = null;
+  const container = document.getElementById('attachment-preview');
+  const media = document.getElementById('attachment-media');
+  const name = document.getElementById('attachment-name');
+  if (container) container.style.display = 'none';
+  if (media) media.innerHTML = '';
+  if (name) name.textContent = '';
+}
+
+document.getElementById('cancel-attachment')?.addEventListener('click', () => {
+  clearAttachment();
+});
+
+async function uploadAndSendMedia(file, captionText = '') {
   if (!socket || !currentGroupId) return;
 
   const isVideo = file.type === 'video/mp4' || file.name.toLowerCase().endsWith('.mp4');
@@ -834,10 +931,11 @@ async function uploadAndSendMedia(file) {
       groupId: currentGroupId,
       type: isVideo ? 'video' : 'image',
       imageUrl: data.url,
-      content: isVideo ? '[视频]' : '[图片]',
+      content: captionText || (isVideo ? '[视频]' : '[图片]'),
       replyTo: replyToMessage
     });
 
+    clearAttachment();
     cancelReply();
   } catch (error) {
     console.error('上传失败:', error);
@@ -895,12 +993,11 @@ emojiBtn?.addEventListener('click', (e) => {
 
 // 点击 emoji
 emojiPicker?.addEventListener('click', (e) => {
-  if (e.target.tagName === 'SPAN' || e.target.textContent.match(/[\u{1F300}-\u{1F9FF}]/u)) {
+  if (e.target.tagName === 'SPAN') {
     const emoji = e.target.textContent.trim();
     if (emoji) {
       messageInput.value += emoji;
       messageInput.focus();
-      emojiPicker.style.display = 'none';
     }
   }
 });
@@ -911,6 +1008,29 @@ document.addEventListener('click', (e) => {
     emojiPicker.style.display = 'none';
   }
 });
+
+// ============ 侧边栏移动端切换 ============
+const sidebarToggle = document.getElementById('sidebar-toggle');
+const sidebarEl = document.querySelector('.sidebar');
+const sidebarBackdrop = document.getElementById('sidebar-backdrop');
+const panelBackdrop = document.getElementById('panel-backdrop');
+
+function openSidebar() {
+  sidebarEl?.classList.add('open');
+  if (sidebarBackdrop) sidebarBackdrop.style.display = 'block';
+}
+
+function closeSidebar() {
+  sidebarEl?.classList.remove('open');
+  if (sidebarBackdrop) sidebarBackdrop.style.display = 'none';
+}
+
+sidebarToggle?.addEventListener('click', () => {
+  if (sidebarEl?.classList.contains('open')) closeSidebar();
+  else openSidebar();
+});
+
+sidebarBackdrop?.addEventListener('click', closeSidebar);
 
 // ============ 正在输入指示器 ============
 
@@ -1062,11 +1182,19 @@ function updateMuteAllUI() {
 // 打开/关闭群组信息面板
 document.getElementById('group-info-btn')?.addEventListener('click', () => {
   const panel = document.getElementById('right-panel');
-  panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
+  const next = panel.style.display === 'none' ? 'flex' : 'none';
+  panel.style.display = next;
+  if (panelBackdrop) panelBackdrop.style.display = next === 'flex' ? 'block' : 'none';
 });
 
 document.getElementById('close-panel')?.addEventListener('click', () => {
   document.getElementById('right-panel').style.display = 'none';
+  if (panelBackdrop) panelBackdrop.style.display = 'none';
+});
+
+panelBackdrop?.addEventListener('click', () => {
+  document.getElementById('right-panel').style.display = 'none';
+  if (panelBackdrop) panelBackdrop.style.display = 'none';
 });
 
 // ============ 模态框 ============
