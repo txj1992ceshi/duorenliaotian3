@@ -98,6 +98,15 @@ function showPage(pageId) {
     page.style.display = 'none';
   });
   document.getElementById(pageId).style.display = pageId === 'app-page' ? 'flex' : 'flex';
+
+  const tabbar = document.getElementById('mobile-tabbar');
+  if (tabbar) {
+    if (pageId === 'app-page' && window.innerWidth <= 768) {
+      tabbar.style.display = 'flex';
+    } else {
+      tabbar.style.display = 'none';
+    }
+  }
 }
 
 function showToast(message, type = 'info') {
@@ -1014,6 +1023,7 @@ const sidebarToggle = document.getElementById('sidebar-toggle');
 const sidebarEl = document.querySelector('.sidebar');
 const sidebarBackdrop = document.getElementById('sidebar-backdrop');
 const panelBackdrop = document.getElementById('panel-backdrop');
+const mobileTabbar = document.getElementById('mobile-tabbar');
 
 function openSidebar() {
   sidebarEl?.classList.add('open');
@@ -1031,6 +1041,27 @@ sidebarToggle?.addEventListener('click', () => {
 });
 
 sidebarBackdrop?.addEventListener('click', closeSidebar);
+
+// 移动端底部按钮
+document.getElementById('tab-groups')?.addEventListener('click', () => {
+  openSidebar();
+});
+document.getElementById('tab-create')?.addEventListener('click', () => {
+  openModal('create-group-modal');
+});
+document.getElementById('tab-join')?.addEventListener('click', () => {
+  openModal('join-group-modal');
+});
+document.getElementById('tab-info')?.addEventListener('click', () => {
+  if (!currentGroupId) {
+    showToast('请先选择群组', 'info');
+    return;
+  }
+  const panel = document.getElementById('right-panel');
+  const next = panel.style.display === 'none' ? 'flex' : 'none';
+  panel.style.display = next;
+  if (panelBackdrop) panelBackdrop.style.display = next === 'flex' ? 'block' : 'none';
+});
 
 // ============ 正在输入指示器 ============
 
