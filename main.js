@@ -31,7 +31,10 @@ function buildDefaultAvatar(username) {
 function applyAvatar(imgEl, url, username) {
   if (!imgEl) return;
   const fallback = buildDefaultAvatar(username);
-  const src = url && String(url).startsWith('http') ? url : fallback;
+  const raw = url ? String(url).trim() : '';
+  const isHttp = raw.startsWith('http');
+  const isPath = raw.startsWith('/');
+  const src = raw ? (isHttp ? raw : (isPath ? `${API_URL}${raw}` : fallback)) : fallback;
   imgEl.src = src;
   imgEl.onerror = () => {
     imgEl.onerror = null;
@@ -567,20 +570,19 @@ async function loadGroups() {
 }
 
 function getHiddenGroupIds() {
-  const uid = getCurrentUserId() || 'anon';
-  const key = `hidden_groups_${uid}`;
-  try {
-    const raw = localStorage.getItem(key);
-    return new Set(raw ? JSON.parse(raw) : []);
-  } catch (_) {
-    return new Set();
-  }
+  const list = (currentUser && Array.isArray(currentUser.hiddenGroups)) ? currentUser.hiddenGroups : [];
+  return new Set(list);
 }
 
-function setHiddenGroupIds(set) {
-  const uid = getCurrentUserId() || 'anon';
-  const key = `hidden_groups_${uid}`;
-  localStorage.setItem(key, JSON.stringify(Array.from(set)));
+async function setHiddenGroupId(groupId, hidden) {
+  const result = await apiRequest('/api/user/hidden-groups', {
+    method: 'PUT',
+    body: JSON.stringify({ groupId, hidden })
+  });
+  if (currentUser) {
+    currentUser.hiddenGroups = result.hiddenGroups || [];
+    setUser(currentUser);
+  }
 }
 
 function displayGroups(groups) {
@@ -624,18 +626,16 @@ function displayGroups(groups) {
       e.stopPropagation();
       const label = isHidden ? '恢复对话' : '删除对话';
       if (!confirm(`确定要${label}吗？`)) return;
-      const next = getHiddenGroupIds();
       if (isHidden) {
-        next.delete(group.id);
+        await setHiddenGroupId(group.id, false);
       } else {
-        next.add(group.id);
+        await setHiddenGroupId(group.id, true);
         if (currentGroupId === group.id) {
           currentGroupId = null;
           currentGroup = null;
           setView('info');
         }
       }
-      setHiddenGroupIds(next);
       displayGroups(groupsCache);
     });
 
@@ -682,9 +682,7 @@ function renderGroupsManage(groups) {
       if (!confirm(`确定要${label}吗？`)) return;
       try {
         if (g.type === 'dm') {
-          const hidden = getHiddenGroupIds();
-          hidden.add(g.id);
-          setHiddenGroupIds(hidden);
+          await setHiddenGroupId(g.id, true);
         } else {
           await apiRequest(`/api/groups/${g.id}/leave`, { method: 'DELETE' });
         }

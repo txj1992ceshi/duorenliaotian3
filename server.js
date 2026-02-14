@@ -231,6 +231,7 @@ function toPublicUser(userDoc) {
     avatar,
     role: userDoc.role,
     groups: userDoc.groups || [],
+    hiddenGroups: userDoc.hiddenGroups || [],
     isBanned: Boolean(userDoc.isBanned),
     userNumber: userDoc.userNumber || null
   };
@@ -575,9 +576,33 @@ app.put('/api/user/profile', authenticateToken, async (req, res) => {
     if (avatar && String(avatar).trim()) updates.avatar = String(avatar).trim();
     if (Object.keys(updates).length === 0) return res.status(400).json({ error: '无可更新字段' });
     const user = await User.findByIdAndUpdate(req.userId, updates, { new: true }).select('-password');
-    res.json(user);
+    res.json(toPublicUser(user));
   } catch (err) {
     console.error('更新个人信息错误:', err);
+    res.status(500).json({ error: '更新失败' });
+  }
+});
+
+// 更新隐藏对话列表
+app.put('/api/user/hidden-groups', authenticateToken, async (req, res) => {
+  try {
+    const { groupId, hidden } = req.body || {};
+    if (!groupId) return res.status(400).json({ error: '缺少 groupId' });
+    const group = await Group.findById(groupId).select('_id').lean();
+    if (!group) return res.status(404).json({ error: '群组不存在' });
+    const user = await User.findById(req.userId).select('groups hiddenGroups').lean();
+    const isMember = user?.groups?.some((g) => g === groupId);
+    if (!isMember) return res.status(403).json({ error: '您不是该群组成员' });
+
+    if (hidden) {
+      await User.findByIdAndUpdate(req.userId, { $addToSet: { hiddenGroups: groupId } });
+    } else {
+      await User.findByIdAndUpdate(req.userId, { $pull: { hiddenGroups: groupId } });
+    }
+    const updated = await User.findById(req.userId).select('hiddenGroups').lean();
+    res.json({ hiddenGroups: updated?.hiddenGroups || [] });
+  } catch (err) {
+    console.error('更新隐藏对话错误:', err);
     res.status(500).json({ error: '更新失败' });
   }
 });

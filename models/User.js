@@ -7,6 +7,7 @@ const userSchema = new mongoose.Schema({
   avatar: { type: String },
   role: { type: String, enum: ['user','admin'], default: 'user' },
   groups: [{ type: String }], // groupId 使用字符串以兼容前端
+  hiddenGroups: [{ type: String }],
   friends: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   createdAt: { type: Date, default: Date.now },
   lastLoginAt: { type: Date, default: null },
