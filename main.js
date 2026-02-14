@@ -149,6 +149,7 @@ function setView(view) {
   const welcome = document.getElementById('welcome-screen');
   const chat = document.getElementById('chat-area');
   const friends = document.getElementById('friends-page');
+  const groupsPage = document.getElementById('groups-page');
   const settings = document.getElementById('settings-page');
   const panel = document.getElementById('right-panel');
   if (panel) panel.style.display = 'none';
@@ -160,17 +161,27 @@ function setView(view) {
     welcome.style.display = 'none';
     chat.style.display = 'none';
     friends.style.display = 'flex';
+    if (groupsPage) groupsPage.style.display = 'none';
     settings.style.display = 'none';
     loadFriends();
     loadFriendRequests();
+  } else if (view === 'groups') {
+    welcome.style.display = 'none';
+    chat.style.display = 'none';
+    friends.style.display = 'none';
+    if (groupsPage) groupsPage.style.display = 'flex';
+    settings.style.display = 'none';
+    renderGroupsManage(groupsCache);
   } else if (view === 'settings') {
     welcome.style.display = 'none';
     chat.style.display = 'none';
     friends.style.display = 'none';
+    if (groupsPage) groupsPage.style.display = 'none';
     settings.style.display = 'flex';
     loadSettingsProfile();
   } else {
     friends.style.display = 'none';
+    if (groupsPage) groupsPage.style.display = 'none';
     settings.style.display = 'none';
     if (currentGroupId) {
       welcome.style.display = 'none';
@@ -190,7 +201,7 @@ function updateSidebarTabs(view) {
   [infoBtn, friendsBtn, settingsBtn].forEach((btn) => btn?.classList.remove('active'));
   if (view === 'friends') friendsBtn?.classList.add('active');
   else if (view === 'settings') settingsBtn?.classList.add('active');
-  else infoBtn?.classList.add('active');
+  else if (view === 'info') infoBtn?.classList.add('active');
 }
 
 function showToast(message, type = 'info') {
@@ -537,6 +548,7 @@ async function loadGroups() {
     const groups = await apiRequest('/api/groups');
     groupsCache = groups || [];
     displayGroups(groupsCache);
+    if (currentView === 'groups') renderGroupsManage(groupsCache);
   } catch (error) {
     console.error('加载群组失败:', error);
   }
@@ -616,6 +628,65 @@ function displayGroups(groups) {
     });
 
     container.appendChild(groupItem);
+  });
+}
+
+function buildGroupAvatar(name) {
+  const seed = encodeURIComponent(name || 'group');
+  return `https://api.dicebear.com/7.x/identicon/svg?seed=${seed}`;
+}
+
+function renderGroupsManage(groups) {
+  const container = document.getElementById('groups-manage-list');
+  if (!container) return;
+  container.innerHTML = '';
+  if (!groups || !groups.length) {
+    container.innerHTML = '<div style="color: var(--text-secondary); font-size: 14px;">暂无群组</div>';
+    return;
+  }
+  groups.forEach((g) => {
+    const item = document.createElement('div');
+    item.className = 'friend-item';
+    item.innerHTML = `
+      <img src="${buildGroupAvatar(g.name)}" alt="${g.name}">
+      <div class="member-info">
+        <div class="member-name">${escapeHtml(g.name)}</div>
+        <div class="member-role">${g.members.length} 成员</div>
+      </div>
+      <div class="friend-actions">
+        <button class="member-action-btn" data-action="open">进入</button>
+        <button class="member-action-btn" data-action="leave">${g.type === 'dm' ? '删除' : '退出'}</button>
+      </div>
+    `;
+    item.querySelector('[data-action="open"]')?.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await loadGroups();
+      selectGroup(g.id);
+      setView('info');
+    });
+    item.querySelector('[data-action="leave"]')?.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const label = g.type === 'dm' ? '删除对话' : '退出群组';
+      if (!confirm(`确定要${label}吗？`)) return;
+      try {
+        if (g.type === 'dm') {
+          const hidden = getHiddenGroupIds();
+          hidden.add(g.id);
+          setHiddenGroupIds(hidden);
+        } else {
+          await apiRequest(`/api/groups/${g.id}/leave`, { method: 'DELETE' });
+        }
+        if (currentGroupId === g.id) {
+          currentGroupId = null;
+          currentGroup = null;
+        }
+        await loadGroups();
+        renderGroupsManage(groupsCache);
+      } catch (err) {
+        showToast(err.message || '操作失败', 'error');
+      }
+    });
+    container.appendChild(item);
   });
 }
 
@@ -1227,10 +1298,8 @@ sidebarBackdrop?.addEventListener('click', closeSidebar);
 
 // 移动端底部按钮
 document.getElementById('tab-groups')?.addEventListener('click', () => {
-  groupsListMode = 'all';
-  displayGroups(groupsCache);
-  setView('info');
-  openSidebar();
+  setView('groups');
+  closeSidebar();
 });
 document.getElementById('tab-info')?.addEventListener('click', () => {
   groupsListMode = 'chat';
@@ -1545,6 +1614,9 @@ document.getElementById('modal-overlay')?.addEventListener('click', (e) => {
 document.getElementById('create-group-btn')?.addEventListener('click', () => {
   openModal('create-group-modal');
 });
+document.getElementById('groups-create-btn')?.addEventListener('click', () => {
+  openModal('create-group-modal');
+});
 
 document.getElementById('create-group-form')?.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -1573,6 +1645,9 @@ document.getElementById('create-group-form')?.addEventListener('submit', async (
 // ============ 加入群组 ============
 
 document.getElementById('join-group-btn')?.addEventListener('click', () => {
+  openModal('join-group-modal');
+});
+document.getElementById('groups-join-btn')?.addEventListener('click', () => {
   openModal('join-group-modal');
 });
 

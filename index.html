@@ -165,7 +165,7 @@
       </div>
 
       <div class="groups-list" id="groups-list">
-        <div class="groups-list-header">群组列表</div>
+        <div class="groups-list-header">信息列表</div>
         <div id="groups-container"></div>
       </div>
     </aside>
@@ -334,6 +334,20 @@
           <div id="friends-list" class="friends-list"></div>
         </div>
       </div>
+      <!-- 群组管理页面 -->
+      <div id="groups-page" class="friends-page" style="display: none;">
+        <div class="friends-header">
+          <h2>群组</h2>
+          <div style="display:flex; gap:8px;">
+            <button id="groups-create-btn" class="btn-secondary">创建群组</button>
+            <button id="groups-join-btn" class="btn-secondary">加入群组</button>
+          </div>
+        </div>
+        <div class="friends-section">
+          <div class="friends-section-title">群组列表</div>
+          <div id="groups-manage-list" class="friends-list"></div>
+        </div>
+      </div>
       <!-- 设置页面 -->
       <div id="settings-page" class="settings-page" style="display: none;">
         <div class="settings-header">
@@ -418,13 +432,13 @@
     <div id="panel-backdrop" class="panel-backdrop" style="display: none;"></div>
   </div>
   <nav id="mobile-tabbar" class="mobile-tabbar" style="display: none;">
-    <button id="tab-groups" class="tab-btn">
-      <span class="tab-icon">🗂️</span>
-      <span class="tab-label">群组</span>
-    </button>
     <button id="tab-info" class="tab-btn">
       <span class="tab-icon">💬</span>
       <span class="tab-label">信息</span>
+    </button>
+    <button id="tab-groups" class="tab-btn">
+      <span class="tab-icon">🗂️</span>
+      <span class="tab-label">群组</span>
     </button>
     <button id="tab-friends" class="tab-btn">
       <span class="tab-icon">👥</span>
