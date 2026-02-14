@@ -198,18 +198,18 @@
       <div id="chat-area" class="chat-area" style="display: none;">
         <!-- 聊天头部 -->
         <div class="chat-header">
+          <button id="sidebar-toggle" class="icon-btn mobile-only" title="群组列表">
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M3 5C3 4.44772 3.44772 4 4 4H16C16.5523 4 17 4.44772 17 5C17 5.55228 16.5523 6 16 6H4C3.44772 6 3 5.55228 3 5Z"/>
+              <path d="M3 10C3 9.44772 3.44772 9 4 9H16C16.5523 9 17 9.44772 17 10C17 10.5523 16.5523 11 16 11H4C3.44772 11 3 10.5523 3 10Z"/>
+              <path d="M3 15C3 14.4477 3.44772 14 4 14H16C16.5523 14 17 14.4477 17 15C17 15.5523 16.5523 16 16 16H4C3.44772 16 3 15.5523 3 15Z"/>
+            </svg>
+          </button>
           <div class="chat-header-info">
             <h2 id="group-name" class="group-name">群组名称</h2>
             <div id="group-members-count" class="group-members-count">0 成员</div>
           </div>
           <div class="chat-header-actions">
-            <button id="sidebar-toggle" class="icon-btn mobile-only" title="群组列表">
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-                <path d="M3 5C3 4.44772 3.44772 4 4 4H16C16.5523 4 17 4.44772 17 5C17 5.55228 16.5523 6 16 6H4C3.44772 6 3 5.55228 3 5Z"/>
-                <path d="M3 10C3 9.44772 3.44772 9 4 9H16C16.5523 9 17 9.44772 17 10C17 10.5523 16.5523 11 16 11H4C3.44772 11 3 10.5523 3 10Z"/>
-                <path d="M3 15C3 14.4477 3.44772 14 4 14H16C16.5523 14 17 14.4477 17 15C17 15.5523 16.5523 16 16 16H4C3.44772 16 3 15.5523 3 15Z"/>
-              </svg>
-            </button>
             <button id="group-info-btn" class="icon-btn" title="群组信息">
               <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
                 <path d="M10 2C10.5523 2 11 2.44772 11 3V3.5C11 4.05228 10.5523 4.5 10 4.5C9.44772 4.5 9 4.05228 9 3.5V3C9 2.44772 9.44772 2 10 2Z"/>
@@ -384,7 +384,7 @@
       <div class="panel-content">
         <!-- 群组详情 -->
         <div class="panel-section">
-          <div class="panel-section-title">群组详情</div>
+          <div class="panel-section-title" id="group-detail-title">群组详情</div>
           <div class="group-detail-item">
             <span class="detail-label">群组 ID</span>
             <span id="detail-group-id" class="detail-value"></span>

@@ -761,12 +761,16 @@ async function loadGroupDetails(groupId) {
     if (isDM && group.membersInfo) {
       otherUser = group.membersInfo.find((m) => m.id !== myId);
     }
+    const countEl = document.getElementById('group-members-count');
     if (isDM && otherUser) {
       document.getElementById('group-name').textContent = otherUser.username;
-      document.getElementById('group-members-count').textContent = otherUser.isOnline ? '在线' : '点击查看资料';
+      const statusText = otherUser.isOnline ? '在线' : '';
+      countEl.textContent = statusText;
+      countEl.style.display = statusText ? 'block' : 'none';
     } else {
       document.getElementById('group-name').textContent = group.name;
-      document.getElementById('group-members-count').textContent = `${group.members.length} 成员`;
+      countEl.textContent = `${group.members.length} 成员`;
+      countEl.style.display = 'block';
     }
 
     // 更新公告
@@ -1449,6 +1453,11 @@ function updateGroupPanel(group) {
   const panelTitle = document.querySelector('.panel-header h3');
   if (panelTitle) {
     panelTitle.textContent = isDM ? '用户信息' : '群组信息';
+  }
+
+  const detailTitle = document.getElementById('group-detail-title');
+  if (detailTitle) {
+    detailTitle.textContent = isDM ? '详细资料' : '群组详情';
   }
 
   const idLabel = document.querySelector('#detail-group-id')?.previousElementSibling;
