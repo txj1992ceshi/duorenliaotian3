@@ -541,6 +541,11 @@ document.getElementById('logout-btn')?.addEventListener('click', () => {
     logout();
   }
 });
+document.getElementById('settings-logout-btn')?.addEventListener('click', () => {
+  if (confirm('确定要退出登录吗?')) {
+    logout();
+  }
+});
 
 document.getElementById('sidebar-tab-info')?.addEventListener('click', () => {
   setView('info');
