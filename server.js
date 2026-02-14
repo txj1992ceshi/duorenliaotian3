@@ -1267,7 +1267,25 @@ app.get('/api/admin/stats', basicAuth, async (req, res) => {
   const groupsCount = await Group.countDocuments();
   const messagesCount = await Message.countDocuments();
   const onlineCount = Array.from(onlineUsers.values()).reduce((sum, set) => sum + (set?.size || 0), 0);
-  res.json({ usersCount, groupsCount, messagesCount, onlineCount });
+  let cloudinaryUsage = null;
+  if (CLOUDINARY_ENABLED) {
+    try {
+      const usage = await cloudinary.api.usage();
+      const storage = usage?.storage || {};
+      const bandwidth = usage?.bandwidth || {};
+      cloudinaryUsage = {
+        creditsUsed: usage?.credits_usage ?? usage?.credits_used ?? null,
+        creditsLimit: usage?.credits ?? usage?.credits_limit ?? null,
+        storageUsedBytes: storage?.usage ?? storage?.used ?? usage?.storage_usage ?? usage?.storage_used ?? null,
+        storageLimitBytes: storage?.limit ?? usage?.storage_limit ?? null,
+        bandwidthUsedBytes: bandwidth?.usage ?? bandwidth?.used ?? usage?.bandwidth_usage ?? usage?.bandwidth_used ?? null,
+        bandwidthLimitBytes: bandwidth?.limit ?? usage?.bandwidth_limit ?? null
+      };
+    } catch (err) {
+      cloudinaryUsage = { error: 'Cloudinary 用量获取失败' };
+    }
+  }
+  res.json({ usersCount, groupsCount, messagesCount, onlineCount, cloudinary: cloudinaryUsage });
 });
 
 // =========================

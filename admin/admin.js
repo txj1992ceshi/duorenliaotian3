@@ -35,12 +35,48 @@ function formatDate(value) {
   return date.toLocaleString('zh-CN');
 }
 
+function formatBytes(value) {
+  if (value === null || value === undefined) return '-';
+  const num = Number(value);
+  if (Number.isNaN(num)) return '-';
+  if (num === 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const idx = Math.min(Math.floor(Math.log(num) / Math.log(1024)), units.length - 1);
+  const v = num / (1024 ** idx);
+  return `${v.toFixed(v >= 10 || idx === 0 ? 0 : 1)} ${units[idx]}`;
+}
+
+function formatUsageLine(used, limit) {
+  if (used == null && limit == null) return '-';
+  if (limit == null) return `${formatBytes(used)} / -`;
+  const percent = limit ? Math.min(100, Math.round((used / limit) * 100)) : null;
+  return `${formatBytes(used)} / ${formatBytes(limit)}${percent != null ? ` (${percent}%)` : ''}`;
+}
+
 async function loadStats() {
   const data = await api('/api/admin/stats');
   document.getElementById('stat-users').textContent = data.usersCount ?? '-';
   document.getElementById('stat-groups').textContent = data.groupsCount ?? '-';
   document.getElementById('stat-messages').textContent = data.messagesCount ?? '-';
   document.getElementById('stat-online').textContent = data.onlineCount ?? '-';
+  const cloudinaryEl = document.getElementById('stat-cloudinary');
+  if (cloudinaryEl) {
+    const usage = data.cloudinary || null;
+    if (!usage || usage.error) {
+      cloudinaryEl.textContent = usage?.error ? '不可用' : '-';
+    } else {
+      const storage = formatUsageLine(usage.storageUsedBytes, usage.storageLimitBytes);
+      const credits = usage.creditsLimit != null
+        ? `${usage.creditsUsed ?? 0} / ${usage.creditsLimit}`
+        : (usage.creditsUsed != null ? String(usage.creditsUsed) : '-');
+      cloudinaryEl.innerHTML = `
+        <div style="font-size:12px;color:var(--muted);margin-bottom:4px;">存储</div>
+        <div>${storage}</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:6px;">额度</div>
+        <div>${credits}</div>
+      `;
+    }
+  }
 }
 
 async function loadUsers() {
