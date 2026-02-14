@@ -905,6 +905,7 @@ app.get('/api/groups/:groupId', authenticateToken, async (req, res) => {
         id: uid,
         username: u.username,
         avatar: u.avatar,
+        userNumber: u.userNumber || null,
         role: uid === ownerId ? 'owner' : (admins.has(uid) ? 'admin' : 'member'),
         isOnline: online,
         muted: Boolean(muted),
