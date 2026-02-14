@@ -841,6 +841,50 @@ app.get('/api/groups', authenticateToken, async (req, res) => {
   }
 });
 
+// 获取用户的会话列表（含群组与私聊，且仅包含有历史消息的会话）
+app.get('/api/conversations', authenticateToken, async (req, res) => {
+  try {
+    const groups = await Group.find({ members: req.userId }).lean();
+    if (!groups || groups.length === 0) return res.json([]);
+
+    const groupIds = groups.map((g) => g._id.toString());
+    const lastMessages = await Message.aggregate([
+      { $match: { groupId: { $in: groupIds } } },
+      { $sort: { createdAt: -1 } },
+      {
+        $group: {
+          _id: '$groupId',
+          lastMessageAt: { $first: '$createdAt' },
+          lastMessage: { $first: '$$ROOT' }
+        }
+      }
+    ]);
+
+    if (!lastMessages || lastMessages.length === 0) return res.json([]);
+
+    const lastMap = new Map(lastMessages.map((m) => [m._id, m]));
+    const withMessages = groups.filter((g) => lastMap.has(g._id.toString()));
+    withMessages.sort((a, b) => {
+      const aTime = lastMap.get(a._id.toString())?.lastMessageAt || 0;
+      const bTime = lastMap.get(b._id.toString())?.lastMessageAt || 0;
+      return bTime - aTime;
+    });
+
+    res.json(withMessages.map((g) => {
+      const base = serializeGroupBasic(g);
+      const meta = lastMap.get(g._id.toString());
+      return {
+        ...base,
+        lastMessageAt: meta?.lastMessageAt ? new Date(meta.lastMessageAt).toISOString() : null,
+        lastMessage: meta?.lastMessage ? serializeMessage(meta.lastMessage) : null
+      };
+    }));
+  } catch (err) {
+    console.error('获取会话列表错误:', err);
+    res.status(500).json({ error: '获取会话列表失败' });
+  }
+});
+
 // 获取群组详情（含成员信息）
 app.get('/api/groups/:groupId', authenticateToken, async (req, res) => {
   try {
@@ -1360,6 +1404,11 @@ io.on('connection', (socket) => {
       };
 
       const message = await createMessageAndCleanup(messagePayload);
+      // 新消息到达时自动恢复被隐藏的会话
+      await User.updateMany(
+        { _id: { $in: group.members }, hiddenGroups: groupId },
+        { $pull: { hiddenGroups: groupId } }
+      );
       io.to(groupId).emit('new_message', serializeMessage(message));
     } catch (err) {
       console.error('send_message error:', err);

@@ -11,6 +11,8 @@ let pendingAttachment = null;
 let currentView = 'info';
 let groupsListMode = 'chat';
 let groupsCache = [];
+let conversationsCache = [];
+let conversationsRefreshTimer = null;
 
 function getCurrentUserId() {
   if (!currentUser) return null;
@@ -83,6 +85,7 @@ function handleMessage(message) {
         connectSocket();
         showPage('app-page');
         loadGroups();
+        loadConversations();
       }
     }
   }
@@ -193,6 +196,7 @@ function setView(view) {
       chat.style.display = 'none';
       welcome.style.display = 'flex';
     }
+    scheduleConversationsRefresh();
   }
   syncMobileTabbar();
 }
@@ -283,6 +287,11 @@ function connectSocket() {
       addMessageToUI(message);
       scrollToBottom();
     }
+    const hiddenIds = getHiddenGroupIds();
+    if (hiddenIds.has(message.groupId)) {
+      setHiddenGroupId(message.groupId, false).catch(() => {});
+    }
+    scheduleConversationsRefresh();
   });
 
   // 用户正在输入
@@ -562,11 +571,28 @@ async function loadGroups() {
   try {
     const groups = await apiRequest('/api/groups');
     groupsCache = groups || [];
-    displayGroups(groupsCache);
     if (currentView === 'groups') renderGroupsManage(groupsCache);
+    scheduleConversationsRefresh();
   } catch (error) {
     console.error('加载群组失败:', error);
   }
+}
+
+async function loadConversations() {
+  try {
+    const conversations = await apiRequest('/api/conversations');
+    conversationsCache = conversations || [];
+    displayConversations(conversationsCache);
+  } catch (error) {
+    console.error('加载会话失败:', error);
+  }
+}
+
+function scheduleConversationsRefresh() {
+  if (conversationsRefreshTimer) clearTimeout(conversationsRefreshTimer);
+  conversationsRefreshTimer = setTimeout(() => {
+    loadConversations();
+  }, 200);
 }
 
 function getHiddenGroupIds() {
@@ -585,7 +611,7 @@ async function setHiddenGroupId(groupId, hidden) {
   }
 }
 
-function displayGroups(groups) {
+function displayConversations(groups) {
   const container = document.getElementById('groups-container');
   container.innerHTML = '';
 
@@ -595,7 +621,7 @@ function displayGroups(groups) {
     : groups.filter((g) => !hiddenIds.has(g.id));
 
   if (list.length === 0) {
-    container.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-secondary); font-size: 14px;">暂无群组<br>创建或加入一个群组开始聊天</div>';
+    container.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-secondary); font-size: 14px;">暂无对话<br>开始聊天后会显示在这里</div>';
     return;
   }
 
@@ -636,7 +662,7 @@ function displayGroups(groups) {
           setView('info');
         }
       }
-      displayGroups(groupsCache);
+      displayConversations(conversationsCache);
     });
 
     container.appendChild(groupItem);
@@ -1313,7 +1339,7 @@ document.getElementById('tab-groups')?.addEventListener('click', () => {
 });
 document.getElementById('tab-info')?.addEventListener('click', () => {
   groupsListMode = 'chat';
-  displayGroups(groupsCache);
+  displayConversations(conversationsCache);
   setView('info');
   openSidebar();
 });
