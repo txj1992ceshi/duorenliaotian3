@@ -53,6 +53,11 @@ function formatUsageLine(used, limit) {
   return `${formatBytes(used)} / ${formatBytes(limit)}${percent != null ? ` (${percent}%)` : ''}`;
 }
 
+function calcPercent(used, limit) {
+  if (used == null || limit == null || !Number(limit)) return null;
+  return Math.min(100, Math.round((Number(used) / Number(limit)) * 100));
+}
+
 async function loadStats() {
   const data = await api('/api/admin/stats');
   document.getElementById('stat-users').textContent = data.usersCount ?? '-';
@@ -60,10 +65,12 @@ async function loadStats() {
   document.getElementById('stat-messages').textContent = data.messagesCount ?? '-';
   document.getElementById('stat-online').textContent = data.onlineCount ?? '-';
   const cloudinaryEl = document.getElementById('stat-cloudinary');
+  const cloudinaryCard = document.getElementById('card-cloudinary');
   if (cloudinaryEl) {
     const usage = data.cloudinary || null;
     if (!usage || usage.error) {
       cloudinaryEl.textContent = usage?.error ? '不可用' : '-';
+      if (cloudinaryCard) cloudinaryCard.classList.remove('usage-ok', 'usage-warn', 'usage-danger');
     } else {
       const storage = formatUsageLine(usage.storageUsedBytes, usage.storageLimitBytes);
       const credits = usage.creditsLimit != null
@@ -75,6 +82,21 @@ async function loadStats() {
         <div style="font-size:12px;color:var(--muted);margin-top:6px;">额度</div>
         <div>${credits}</div>
       `;
+      if (cloudinaryCard) {
+        const storagePct = calcPercent(usage.storageUsedBytes, usage.storageLimitBytes);
+        const creditsPct = calcPercent(usage.creditsUsed, usage.creditsLimit);
+        const percent = Math.max(storagePct ?? 0, creditsPct ?? 0);
+        cloudinaryCard.classList.remove('usage-ok', 'usage-warn', 'usage-danger');
+        if (storagePct == null && creditsPct == null) {
+          // no-op
+        } else if (percent >= 95) {
+          cloudinaryCard.classList.add('usage-danger');
+        } else if (percent >= 80) {
+          cloudinaryCard.classList.add('usage-warn');
+        } else {
+          cloudinaryCard.classList.add('usage-ok');
+        }
+      }
     }
   }
 }
