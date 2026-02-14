@@ -636,7 +636,7 @@ function displayConversations(groups) {
     groupItem.innerHTML = `
       <div class="group-item-name">${group.name}</div>
       <div class="group-item-info">
-        <span>${group.members.length} 成员</span>
+        <span>${group.type === 'dm' ? '私聊' : `${group.members.length} 成员`}</span>
         <div class="group-item-actions">
           <button class="group-delete-btn">${actionLabel}</button>
         </div>
@@ -754,9 +754,20 @@ async function loadGroupDetails(groupId) {
     const group = await apiRequest(`/api/groups/${groupId}`);
     currentGroup = group;
 
-    // 更新头部信息
-    document.getElementById('group-name').textContent = group.name;
-    document.getElementById('group-members-count').textContent = `${group.members.length} 成员`;
+    // 更新头部信息（区分私聊与群聊）
+    const isDM = group.type === 'dm';
+    const myId = getCurrentUserId();
+    let otherUser = null;
+    if (isDM && group.membersInfo) {
+      otherUser = group.membersInfo.find((m) => m.id !== myId);
+    }
+    if (isDM && otherUser) {
+      document.getElementById('group-name').textContent = otherUser.username;
+      document.getElementById('group-members-count').textContent = otherUser.isOnline ? '在线' : '点击查看资料';
+    } else {
+      document.getElementById('group-name').textContent = group.name;
+      document.getElementById('group-members-count').textContent = `${group.members.length} 成员`;
+    }
 
     // 更新公告
     updateAnnouncement(group.announcement);
@@ -1431,10 +1442,33 @@ function attachPinnedLongPress(bannerEl, messageId) {
 // ============ 右侧面板 ============
 
 function updateGroupPanel(group) {
-  // 群组详情
-  document.getElementById('detail-group-id').textContent = group.id;
-  document.getElementById('detail-created-at').textContent = new Date(group.createdAt).toLocaleDateString('zh-CN');
-  document.getElementById('detail-description').textContent = group.description || '暂无描述';
+  const isDM = group.type === 'dm';
+  const myId = getCurrentUserId();
+  const otherUser = isDM && group.membersInfo ? group.membersInfo.find((m) => m.id !== myId) : null;
+
+  const panelTitle = document.querySelector('.panel-header h3');
+  if (panelTitle) {
+    panelTitle.textContent = isDM ? '用户信息' : '群组信息';
+  }
+
+  const idLabel = document.querySelector('#detail-group-id')?.previousElementSibling;
+  const idValue = document.getElementById('detail-group-id');
+  const createTimeRow = document.getElementById('detail-created-at')?.parentElement;
+  const descRow = document.getElementById('detail-description')?.parentElement;
+
+  if (isDM) {
+    if (idLabel) idLabel.textContent = '用户 ID';
+    if (idValue) idValue.textContent = otherUser?.userNumber || '未知';
+    if (createTimeRow) createTimeRow.style.display = 'none';
+    if (descRow) descRow.style.display = 'none';
+  } else {
+    if (idLabel) idLabel.textContent = '群组 ID';
+    if (idValue) idValue.textContent = group.id;
+    if (createTimeRow) createTimeRow.style.display = 'flex';
+    if (descRow) descRow.style.display = 'block';
+    document.getElementById('detail-created-at').textContent = new Date(group.createdAt).toLocaleDateString('zh-CN');
+    document.getElementById('detail-description').textContent = group.description || '暂无描述';
+  }
 
   // 管理员操作
   const uid = getCurrentUserId();

@@ -892,7 +892,7 @@ app.get('/api/groups/:groupId', authenticateToken, async (req, res) => {
     if (!group) return res.status(404).json({ error: '群组不存在' });
     if (!ensureIsGroupMember({ groupDoc: group, userId: req.userId })) return res.status(403).json({ error: '您不是该群组成员' });
 
-    const members = await User.find({ _id: { $in: group.members } }).select('username avatar').lean();
+    const members = await User.find({ _id: { $in: group.members } }).select('username avatar userNumber').lean();
     const admins = new Set((group.admins || []).map((a) => a.toString()));
     const ownerId = group.ownerId.toString();
     const mutedMap = new Map((group.mutedMembers || []).map((m) => [m.userId.toString(), m]));
