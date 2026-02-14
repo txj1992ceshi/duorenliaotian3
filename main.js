@@ -364,6 +364,18 @@ function connectSocket() {
       updateJoinRequestBadge(data.count || 0);
     }
   });
+
+  socket.on('mute_request_updated', (data) => {
+    if (data.groupId === currentGroupId) {
+      updateMuteRequestBadge(data.count || 0);
+    }
+  });
+
+  socket.on('member_mute_updated', (data) => {
+    if (data.groupId === currentGroupId) {
+      loadGroupDetails(currentGroupId);
+    }
+  });
 }
 
 function disconnectSocket() {
@@ -1407,13 +1419,16 @@ function updateGroupPanel(group) {
   if (group.type === 'dm') {
     adminActions.style.display = 'none';
     updateJoinRequestBadge(0);
+    updateMuteRequestBadge(0);
   } else if (isAdmin) {
     adminActions.style.display = 'block';
     document.getElementById('mute-all-text').textContent = group.muteAll ? '关闭全员禁言' : '开启全员禁言';
     updateJoinRequestBadge(group.joinRequestsCount || 0);
+    updateMuteRequestBadge(group.muteRequestsCount || 0);
   } else {
     adminActions.style.display = 'none';
     updateJoinRequestBadge(0);
+    updateMuteRequestBadge(0);
   }
 
   // 成员列表
@@ -1423,6 +1438,17 @@ function updateGroupPanel(group) {
 function updateJoinRequestBadge(count) {
   const dot = document.getElementById('join-requests-badge');
   const badge = document.getElementById('join-requests-count');
+  const show = count > 0;
+  if (dot) dot.style.display = show ? 'inline-block' : 'none';
+  if (badge) {
+    badge.style.display = show ? 'inline-block' : 'none';
+    badge.textContent = String(count || 0);
+  }
+}
+
+function updateMuteRequestBadge(count) {
+  const dot = document.getElementById('mute-requests-badge');
+  const badge = document.getElementById('mute-requests-count');
   const show = count > 0;
   if (dot) dot.style.display = show ? 'inline-block' : 'none';
   if (badge) {
@@ -1454,14 +1480,24 @@ function displayMembers(members) {
     const isOwner = uid && currentGroup.ownerId === uid;
     const canManageAdmin = isOwner && member.id !== currentGroup.ownerId;
     const isMemberAdmin = currentGroup.admins.includes(member.id);
+    const isAdmin = uid && (currentGroup.ownerId === uid || currentGroup.admins.includes(uid));
+    const canManageMute = isAdmin && member.id !== currentGroup.ownerId;
+    const isSelf = uid && member.id === uid;
+    const isMuted = Boolean(member.muted);
+    const canRequestAt = member.muteCanRequestAt ? new Date(member.muteCanRequestAt).getTime() : 0;
+    const canRequest = isSelf && isMuted && !member.muteRequestPending && Date.now() >= canRequestAt;
 
     memberEl.innerHTML = `
       <img src="" class="member-avatar" alt="${member.username}">
       <div class="member-info">
         <div class="member-name">${escapeHtml(member.username)}</div>
         ${roleText ? `<div class="member-role">${roleText}</div>` : ''}
+        ${isMuted ? `<div class="member-role">禁言中</div>` : ''}
       </div>
       ${canManageAdmin ? `<button class="member-action-btn" data-action="toggle-admin">${isMemberAdmin ? '取消管理员' : '设为管理员'}</button>` : ''}
+      ${canManageMute ? `<button class="member-action-btn" data-action="toggle-mute">${isMuted ? '解除禁言' : '禁言'}</button>` : ''}
+      ${canRequest ? `<button class="member-action-btn" data-action="request-unmute">申请解禁</button>` : ''}
+      ${isSelf && isMuted && member.muteRequestPending ? `<button class="member-action-btn" disabled>已申请</button>` : ''}
       <div class="member-status ${member.isOnline ? 'online' : ''}"></div>
     `;
 
@@ -1481,6 +1517,40 @@ function displayMembers(members) {
           showToast('操作成功', 'success');
         } catch (err) {
           showToast(err.message || '操作失败', 'error');
+        }
+      });
+    }
+
+    if (canManageMute) {
+      memberEl.querySelector('[data-action="toggle-mute"]')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        try {
+          const muted = !isMuted;
+          const label = muted ? '禁言' : '解除禁言';
+          if (!confirm(`确定要${label}：${member.username} 吗？`)) return;
+          await apiRequest(`/api/groups/${currentGroup.id}/mute-member`, {
+            method: 'PUT',
+            body: JSON.stringify({ userId: member.id, muted })
+          });
+          await loadGroupDetails(currentGroup.id);
+          showToast('操作成功', 'success');
+        } catch (err) {
+          showToast(err.message || '操作失败', 'error');
+        }
+      });
+    }
+
+    if (canRequest) {
+      memberEl.querySelector('[data-action="request-unmute"]')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        try {
+          await apiRequest(`/api/groups/${currentGroup.id}/mute-requests`, {
+            method: 'POST'
+          });
+          await loadGroupDetails(currentGroup.id);
+          showToast('已提交解禁申请', 'success');
+        } catch (err) {
+          showToast(err.message || '提交失败', 'error');
         }
       });
     }
@@ -1511,6 +1581,11 @@ function updateMuteAllUI() {
 document.getElementById('join-requests-btn')?.addEventListener('click', async () => {
   await loadJoinRequests();
   document.getElementById('join-requests-section').style.display = 'block';
+});
+
+document.getElementById('mute-requests-btn')?.addEventListener('click', async () => {
+  await loadMuteRequests();
+  document.getElementById('mute-requests-section').style.display = 'block';
 });
 
 async function loadJoinRequests() {
@@ -1570,6 +1645,63 @@ async function handleJoinRequest(userId, action) {
   }
 }
 
+async function loadMuteRequests() {
+  if (!currentGroup) return;
+  try {
+    const list = await apiRequest(`/api/groups/${currentGroup.id}/mute-requests`);
+    renderMuteRequests(list || []);
+    updateMuteRequestBadge(list.length || 0);
+  } catch (err) {
+    showToast(err.message || '加载解禁申请失败', 'error');
+  }
+}
+
+function renderMuteRequests(requests) {
+  const section = document.getElementById('mute-requests-section');
+  const container = document.getElementById('mute-requests-list');
+  container.innerHTML = '';
+  if (!requests.length) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = 'block';
+  requests.forEach((u) => {
+    const item = document.createElement('div');
+    item.className = 'member-item';
+    item.innerHTML = `
+      <img src="${u.avatar}" class="member-avatar" alt="${u.username}">
+      <div class="member-info">
+        <div class="member-name">${escapeHtml(u.username)}</div>
+        <div class="member-role">ID: ${u.userNumber || '-'}</div>
+      </div>
+      <button class="member-action-btn" data-action="approve">通过</button>
+      <button class="member-action-btn" data-action="reject">拒绝</button>
+    `;
+    item.querySelector('[data-action="approve"]')?.addEventListener('click', async () => {
+      await handleMuteRequest(u.id, 'approve');
+    });
+    item.querySelector('[data-action="reject"]')?.addEventListener('click', async () => {
+      await handleMuteRequest(u.id, 'reject');
+    });
+    container.appendChild(item);
+  });
+}
+
+async function handleMuteRequest(userId, action) {
+  if (!currentGroup) return;
+  try {
+    await apiRequest(`/api/groups/${currentGroup.id}/mute-requests/${userId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ action })
+    });
+    await loadGroupDetails(currentGroup.id);
+    await loadMuteRequests();
+    showToast(action === 'approve' ? '已通过申请' : '已拒绝申请', 'success');
+  } catch (err) {
+    showToast(err.message || '操作失败', 'error');
+  }
+}
+
 // 打开/关闭群组信息面板
 document.getElementById('group-info-btn')?.addEventListener('click', () => {
   const panel = document.getElementById('right-panel');
@@ -1617,6 +1749,9 @@ document.getElementById('create-group-btn')?.addEventListener('click', () => {
 document.getElementById('groups-create-btn')?.addEventListener('click', () => {
   openModal('create-group-modal');
 });
+document.getElementById('groups-create-btn')?.addEventListener('click', () => {
+  openModal('create-group-modal');
+});
 
 document.getElementById('create-group-form')?.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -1645,6 +1780,9 @@ document.getElementById('create-group-form')?.addEventListener('submit', async (
 // ============ 加入群组 ============
 
 document.getElementById('join-group-btn')?.addEventListener('click', () => {
+  openModal('join-group-modal');
+});
+document.getElementById('groups-join-btn')?.addEventListener('click', () => {
   openModal('join-group-modal');
 });
 document.getElementById('groups-join-btn')?.addEventListener('click', () => {

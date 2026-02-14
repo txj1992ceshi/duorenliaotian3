@@ -309,6 +309,11 @@ function ensureIsGroupMember({ groupDoc, userId }) {
   return (groupDoc.members || []).some((m) => m.toString() === uid);
 }
 
+function getMutedEntry(groupDoc, userId) {
+  const uid = userId.toString();
+  return (groupDoc.mutedMembers || []).find((m) => m.userId?.toString() === uid) || null;
+}
+
 function basicAuth(req, res, next) {
   const header = req.headers.authorization || '';
   if (!header.startsWith('Basic ')) {
@@ -821,22 +826,28 @@ app.get('/api/groups/:groupId', authenticateToken, async (req, res) => {
     const members = await User.find({ _id: { $in: group.members } }).select('username avatar').lean();
     const admins = new Set((group.admins || []).map((a) => a.toString()));
     const ownerId = group.ownerId.toString();
+    const mutedMap = new Map((group.mutedMembers || []).map((m) => [m.userId.toString(), m]));
 
     const membersInfo = members.map((u) => {
       const uid = u._id.toString();
       const online = (onlineUsers.get(uid)?.size || 0) > 0;
+      const muted = mutedMap.get(uid);
       return {
         id: uid,
         username: u.username,
         avatar: u.avatar,
         role: uid === ownerId ? 'owner' : (admins.has(uid) ? 'admin' : 'member'),
-        isOnline: online
+        isOnline: online,
+        muted: Boolean(muted),
+        muteCanRequestAt: muted?.canRequestAt ? new Date(muted.canRequestAt).toISOString() : null,
+        muteRequestPending: Boolean(muted?.requestPending)
       };
     });
 
     res.json({
       ...serializeGroupBasic(group),
-      membersInfo
+      membersInfo,
+      muteRequestsCount: (group.mutedMembers || []).filter((m) => m.requestPending).length
     });
   } catch (err) {
     console.error('获取群组详情错误:', err);
@@ -923,6 +934,122 @@ app.put('/api/groups/:groupId/mute-all', authenticateToken, async (req, res) => 
     console.error('全员禁言错误:', err);
     res.status(500).json({ error: '设置失败' });
   }
+});
+
+// 单独禁言/解除（群主/管理员）
+app.put('/api/groups/:groupId/mute-member', authenticateToken, async (req, res) => {
+  try {
+    const { userId, muted } = req.body || {};
+    const group = await Group.findById(req.params.groupId);
+    if (!group) return res.status(404).json({ error: '群组不存在' });
+    if (group.type === 'dm') return res.status(400).json({ error: '私聊不支持禁言' });
+    if (!userHasGroupAdminRights({ groupDoc: group, userId: req.userId })) return res.status(403).json({ error: '无权限' });
+    if (!userId) return res.status(400).json({ error: '缺少用户' });
+    if (!ensureIsGroupMember({ groupDoc: group, userId })) return res.status(400).json({ error: '该用户不是群成员' });
+    if (userId.toString() === group.ownerId.toString()) return res.status(400).json({ error: '不能禁言群主' });
+
+    const entry = getMutedEntry(group, userId);
+    if (muted) {
+      const now = new Date();
+      const canRequestAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      if (entry) {
+        entry.mutedAt = now;
+        entry.canRequestAt = canRequestAt;
+        entry.requestPending = false;
+        entry.requestAt = null;
+      } else {
+        group.mutedMembers.push({
+          userId,
+          mutedAt: now,
+          canRequestAt,
+          requestPending: false,
+          requestAt: null
+        });
+      }
+      await group.save();
+      io.to(group._id).emit('member_mute_updated', { groupId: group._id, userId: userId.toString(), muted: true });
+      return res.json({ userId: userId.toString(), muted: true, canRequestAt });
+    }
+
+    if (entry) {
+      group.mutedMembers = group.mutedMembers.filter((m) => m.userId.toString() !== userId.toString());
+      await group.save();
+    }
+    io.to(group._id).emit('member_mute_updated', { groupId: group._id, userId: userId.toString(), muted: false });
+    return res.json({ userId: userId.toString(), muted: false });
+  } catch (err) {
+    console.error('单独禁言错误:', err);
+    res.status(500).json({ error: '操作失败' });
+  }
+});
+
+// 申请解除禁言（成员）
+app.post('/api/groups/:groupId/mute-requests', authenticateToken, async (req, res) => {
+  try {
+    const group = await Group.findById(req.params.groupId);
+    if (!group) return res.status(404).json({ error: '群组不存在' });
+    if (!ensureIsGroupMember({ groupDoc: group, userId: req.userId })) return res.status(403).json({ error: '您不是该群组成员' });
+    const entry = getMutedEntry(group, req.userId);
+    if (!entry) return res.status(400).json({ error: '您未被禁言' });
+    if (entry.requestPending) return res.status(400).json({ error: '已提交申请' });
+    if (entry.canRequestAt && Date.now() < new Date(entry.canRequestAt).getTime()) {
+      return res.status(400).json({ error: '未到申请时间' });
+    }
+    entry.requestPending = true;
+    entry.requestAt = new Date();
+    await group.save();
+    io.to(group._id).emit('mute_request_updated', { groupId: group._id, count: (group.mutedMembers || []).filter((m) => m.requestPending).length });
+    res.json({ status: 'requested' });
+  } catch (err) {
+    console.error('申请解禁错误:', err);
+    res.status(500).json({ error: '申请失败' });
+  }
+});
+
+// 获取禁言解除申请（群主/管理员）
+app.get('/api/groups/:groupId/mute-requests', authenticateToken, async (req, res) => {
+  const group = await Group.findById(req.params.groupId);
+  if (!group) return res.status(404).json({ error: '群组不存在' });
+  if (!userHasGroupAdminRights({ groupDoc: group, userId: req.userId })) return res.status(403).json({ error: '无权限' });
+
+  const pending = (group.mutedMembers || []).filter((m) => m.requestPending);
+  if (pending.length === 0) return res.json([]);
+  const ids = pending.map((m) => m.userId.toString());
+  const users = await User.find({ _id: { $in: ids } }).select('username avatar userNumber').lean();
+  const map = new Map(users.map((u) => [u._id.toString(), u]));
+  const ordered = ids.map((id) => map.get(id)).filter(Boolean).map((u) => ({
+    id: u._id.toString(),
+    username: u.username,
+    avatar: u.avatar,
+    userNumber: u.userNumber
+  }));
+  res.json(ordered);
+});
+
+// 审批禁言解除申请
+app.put('/api/groups/:groupId/mute-requests/:userId', authenticateToken, async (req, res) => {
+  const { action } = req.body || {};
+  const group = await Group.findById(req.params.groupId);
+  if (!group) return res.status(404).json({ error: '群组不存在' });
+  if (!userHasGroupAdminRights({ groupDoc: group, userId: req.userId })) return res.status(403).json({ error: '无权限' });
+  if (!['approve', 'reject'].includes(action)) return res.status(400).json({ error: '无效操作' });
+
+  const targetId = req.params.userId;
+  const entry = getMutedEntry(group, targetId);
+  if (!entry || !entry.requestPending) return res.status(404).json({ error: '申请不存在' });
+
+  if (action === 'approve') {
+    group.mutedMembers = group.mutedMembers.filter((m) => m.userId.toString() !== targetId);
+    await group.save();
+    io.to(group._id).emit('member_mute_updated', { groupId: group._id, userId: targetId.toString(), muted: false });
+  } else {
+    entry.requestPending = false;
+    entry.requestAt = null;
+    await group.save();
+  }
+
+  io.to(group._id).emit('mute_request_updated', { groupId: group._id, count: (group.mutedMembers || []).filter((m) => m.requestPending).length });
+  res.json({ status: action });
 });
 
 // 设置/取消管理员（仅群主）
@@ -1178,6 +1305,11 @@ io.on('connection', (socket) => {
       const isGroupAdmin = userHasGroupAdminRights({ groupDoc: group, userId: socket.userId });
       if (group.muteAll && !isGroupAdmin) {
         socket.emit('error', { message: '当前群组已开启全员禁言' });
+        return;
+      }
+      const mutedEntry = getMutedEntry(group, socket.userId);
+      if (mutedEntry && !isGroupAdmin) {
+        socket.emit('error', { message: '您已被禁言' });
         return;
       }
 

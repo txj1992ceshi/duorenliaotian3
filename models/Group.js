@@ -11,6 +11,15 @@ const groupSchema = new mongoose.Schema({
   joinRequests: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   announcement: { type: String, default: '' },
   muteAll: { type: Boolean, default: false },
+  mutedMembers: [
+    {
+      userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+      mutedAt: { type: Date, default: Date.now },
+      canRequestAt: { type: Date, default: null },
+      requestPending: { type: Boolean, default: false },
+      requestAt: { type: Date, default: null }
+    }
+  ],
   // 置顶消息：使用消息 id（字符串）以兼容前端 currentGroup.pinnedMessages
   pinnedMessages: [{ type: String }],
   createdAt: { type: Date, default: Date.now }
