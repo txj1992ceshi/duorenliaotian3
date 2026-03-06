@@ -10,6 +10,7 @@ const messageSchema = new mongoose.Schema({
   content: { type: String, default: '' },
   type: { type: String, enum: ['text', 'image', 'video'], default: 'text' },
   imageUrl: { type: String, default: '' },
+  imageUrls: { type: [String], default: [] },
   // replyTo 使用字符串消息 id（而非 ObjectId）以兼容前端引用逻辑
   replyTo: { type: String, default: null },
   edited: { type: Boolean, default: false },

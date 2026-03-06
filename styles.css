@@ -1199,6 +1199,58 @@ body {
   transform: scale(1.2);
 }
 
+/* 多图预览 */
+.image-previews-container {
+  display: flex;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+  overflow-x: auto;
+}
+
+.image-previews-container::-webkit-scrollbar {
+  height: 6px;
+}
+
+.image-previews-container::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 999px;
+}
+
+.preview-item {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  flex-shrink: 0;
+}
+
+.preview-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+}
+
+.remove-preview {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 20px;
+  height: 20px;
+  background: var(--danger-color);
+  color: #fff;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  cursor: pointer;
+  border: 2px solid #fff;
+  box-shadow: var(--shadow-sm);
+}
+
 /* 附件预览 */
 .attachment-preview {
   padding: 12px 24px 0;
@@ -1235,6 +1287,29 @@ body {
   font-size: 12px;
   color: var(--text-secondary);
   margin-top: 4px;
+}
+
+/* 消息图片网格 */
+.message-images-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.message-images-grid.single {
+  grid-template-columns: 1fr;
+}
+
+.message-images-grid img {
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.message.own .message-images-grid img {
+  border: 1px solid rgba(255, 255, 255, 0.25);
 }
 
 /* 图片预览弹窗 */

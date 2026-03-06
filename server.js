@@ -247,6 +247,7 @@ function serializeMessage(doc) {
     content: doc.content,
     type: doc.type,
     imageUrl: doc.imageUrl,
+    imageUrls: Array.isArray(doc.imageUrls) ? doc.imageUrls : [],
     replyTo: doc.replyTo,
     timestamp: doc.timestamp,
     edited: Boolean(doc.edited),
@@ -1384,7 +1385,7 @@ io.on('connection', (socket) => {
     try {
       if (!socket.userId) return;
 
-      const { groupId, content, type, replyTo, imageUrl } = data || {};
+      const { groupId, content, type, replyTo, imageUrl, imageUrls } = data || {};
       const group = await Group.findById(groupId);
       if (!group) return;
       if (!ensureIsGroupMember({ groupDoc: group, userId: socket.userId })) return;
@@ -1404,6 +1405,11 @@ io.on('connection', (socket) => {
       const user = await User.findById(socket.userId);
       if (!user) return;
 
+      let safeImageUrls = [];
+      if (Array.isArray(imageUrls)) {
+        safeImageUrls = imageUrls.filter((u) => typeof u === 'string' && u.trim()).slice(0, 5);
+      }
+
       const nowIso = new Date().toISOString();
       const messagePayload = {
         _id: generateMessageId(),
@@ -1414,6 +1420,7 @@ io.on('connection', (socket) => {
         content: content || '',
         type: type || 'text',
         imageUrl: imageUrl || '',
+        imageUrls: safeImageUrls,
         replyTo: replyTo || null,
         edited: false,
         pinned: false,

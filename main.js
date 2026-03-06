@@ -8,6 +8,8 @@ let replyToMessage = null;
 let typingTimeout = null;
 let onlineUsers = new Set();
 let pendingAttachment = null;
+let stagedImages = [];
+const MAX_STAGED_IMAGES = 5;
 let currentView = 'info';
 let groupsListMode = 'chat';
 let groupsCache = [];
@@ -840,10 +842,20 @@ function addMessageToUI(message, scroll = true) {
   let contentHTML = '';
   if (message.type === 'image') {
     const caption = message.content && message.content !== '[图片]' ? `<div class="message-text">${escapeHtml(message.content)}</div>` : '';
-    contentHTML = `
-      <img src="${message.imageUrl}" class="message-image" alt="图片" onclick="openImageModal('${message.imageUrl}')">
-      ${caption}
-    `;
+    const urls = Array.isArray(message.imageUrls) ? message.imageUrls.filter(Boolean) : [];
+    if (urls.length > 0) {
+      const gridClass = urls.length === 1 ? 'message-images-grid single' : 'message-images-grid';
+      const imgs = urls.map((url) => `<img src="${url}" alt="图片" onclick="openImageModal('${url}')">`).join('');
+      contentHTML = `
+        <div class="${gridClass}">${imgs}</div>
+        ${caption}
+      `;
+    } else {
+      contentHTML = `
+        <img src="${message.imageUrl}" class="message-image" alt="图片" onclick="openImageModal('${message.imageUrl}')">
+        ${caption}
+      `;
+    }
   } else if (message.type === 'video') {
     const caption = message.content && message.content !== '[视频]' ? `<div class="message-text">${escapeHtml(message.content)}</div>` : '';
     contentHTML = `
@@ -965,7 +977,7 @@ function findMessageById(messageId) {
     id: messageId,
     username: messageEl.querySelector('.message-username')?.textContent || '',
     content: messageEl.querySelector('.message-text')?.textContent || '',
-    type: messageEl.querySelector('.message-image') ? 'image' : 'text'
+    type: messageEl.querySelector('.message-video') ? 'video' : (messageEl.querySelector('.message-image, .message-images-grid') ? 'image' : 'text')
   };
 }
 
@@ -1096,7 +1108,7 @@ messageInput?.addEventListener('keydown', (e) => {
 
 function sendMessage() {
   const content = messageInput.value.trim();
-  if ((!content && !pendingAttachment) || !socket || !currentGroupId) return;
+  if ((!content && !pendingAttachment && stagedImages.length === 0) || !socket || !currentGroupId) return;
 
   // 检查是否被禁言
   const uid = getCurrentUserId();
@@ -1109,6 +1121,8 @@ function sendMessage() {
 
   if (pendingAttachment) {
     uploadAndSendMedia(pendingAttachment.file, content);
+  } else if (stagedImages.length > 0) {
+    uploadAndSendImages(stagedImages, content);
   } else {
     const messageData = {
       groupId: currentGroupId,
@@ -1121,7 +1135,9 @@ function sendMessage() {
 
   messageInput.value = '';
   messageInput.style.height = 'auto';
-  cancelReply();
+  if (stagedImages.length === 0) {
+    cancelReply();
+  }
 
   if (socket) {
     socket.emit('stop_typing', { groupId: currentGroupId });
@@ -1138,10 +1154,31 @@ imageBtn?.addEventListener('click', () => {
 });
 
 imageInput?.addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
+  const files = Array.from(e.target.files || []);
+  if (files.length === 0) return;
 
-  setAttachment(file);
+  const hasVideo = files.some((f) => isVideoFile(f));
+  if (hasVideo) {
+    if (stagedImages.length > 0) {
+      showToast('已选择图片，不能再添加视频', 'warning');
+      imageInput.value = '';
+      return;
+    }
+    const videoFile = files.find((f) => isVideoFile(f));
+    if (videoFile) setAttachment(videoFile);
+    imageInput.value = '';
+    return;
+  }
+
+  for (const file of files) {
+    if (stagedImages.length >= MAX_STAGED_IMAGES) {
+      showToast(`最多只能添加 ${MAX_STAGED_IMAGES} 张图片`, 'warning');
+      break;
+    }
+    if (!isImageFile(file)) continue;
+    addStagedImage(file);
+  }
+
   imageInput.value = '';
 });
 
@@ -1150,16 +1187,22 @@ messageInput?.addEventListener('paste', async (e) => {
   const items = e.clipboardData?.items;
   if (!items) return;
 
+  let handled = false;
   for (const item of items) {
     if (item.type.indexOf('image') !== -1) {
+      if (stagedImages.length >= MAX_STAGED_IMAGES) {
+        showToast(`最多只能添加 ${MAX_STAGED_IMAGES} 张图片`, 'warning');
+        break;
+      }
       e.preventDefault();
       const file = item.getAsFile();
       if (file) {
-        setAttachment(file);
+        addStagedImage(file);
       }
-      break;
+      handled = true;
     }
   }
+  if (handled) renderImagePreviews();
 });
 
 function setAttachment(file) {
@@ -1202,10 +1245,127 @@ document.getElementById('cancel-attachment')?.addEventListener('click', () => {
   clearAttachment();
 });
 
+function isVideoFile(file) {
+  return file.type === 'video/mp4' || file.name.toLowerCase().endsWith('.mp4');
+}
+
+function isImageFile(file) {
+  return file.type.startsWith('image/');
+}
+
+function addStagedImage(file) {
+  if (!file) return;
+  if (stagedImages.length >= MAX_STAGED_IMAGES) return;
+  if (pendingAttachment) clearAttachment();
+
+  const url = URL.createObjectURL(file);
+  stagedImages.push({ file, url });
+  renderImagePreviews();
+}
+
+function removeStagedImage(index) {
+  const item = stagedImages[index];
+  if (item?.url) URL.revokeObjectURL(item.url);
+  stagedImages.splice(index, 1);
+  renderImagePreviews();
+}
+
+function clearStagedImages() {
+  stagedImages.forEach((item) => {
+    if (item?.url) URL.revokeObjectURL(item.url);
+  });
+  stagedImages = [];
+  renderImagePreviews();
+}
+
+function renderImagePreviews() {
+  const container = document.getElementById('image-previews');
+  if (!container) return;
+  if (stagedImages.length === 0) {
+    container.style.display = 'none';
+    container.innerHTML = '';
+    return;
+  }
+
+  container.style.display = 'flex';
+  container.innerHTML = stagedImages
+    .map((img, index) => `
+      <div class="preview-item" data-index="${index}">
+        <img src="${img.url}" class="preview-image" alt="预览">
+        <div class="remove-preview" data-index="${index}">×</div>
+      </div>
+    `)
+    .join('');
+
+  container.querySelectorAll('.remove-preview').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const idx = Number(btn.dataset.index);
+      if (!Number.isNaN(idx)) removeStagedImage(idx);
+    });
+  });
+}
+
+async function uploadFileForMessage(file) {
+  const isVideo = isVideoFile(file);
+  if (isVideo) throw new Error('多图模式不支持视频');
+
+  const maxBytes = 5 * 1024 * 1024;
+  if (file.size > maxBytes) {
+    throw new Error('图片大小不能超过 5MB');
+  }
+
+  const uploadFile = await compressImage(file);
+
+  const formData = new FormData();
+  formData.append('file', uploadFile);
+  formData.append('groupId', currentGroupId);
+
+  const response = await fetch(`${API_URL}/api/upload`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${getToken()}` },
+    body: formData
+  });
+
+  if (!response.ok) {
+    throw new Error('上传失败');
+  }
+
+  const data = await response.json();
+  return data.url;
+}
+
+async function uploadAndSendImages(images, captionText = '') {
+  if (!socket || !currentGroupId) return;
+  if (!images.length) return;
+
+  try {
+    const urls = [];
+    for (const item of images) {
+      const url = await uploadFileForMessage(item.file);
+      urls.push(url);
+    }
+
+    socket.emit('send_message', {
+      groupId: currentGroupId,
+      type: 'image',
+      imageUrls: urls,
+      content: captionText || '',
+      replyTo: replyToMessage
+    });
+
+    clearStagedImages();
+    cancelReply();
+  } catch (error) {
+    console.error('上传失败:', error);
+    showToast('上传失败', 'error');
+  }
+}
+
 async function uploadAndSendMedia(file, captionText = '') {
   if (!socket || !currentGroupId) return;
 
-  const isVideo = file.type === 'video/mp4' || file.name.toLowerCase().endsWith('.mp4');
+  const isVideo = isVideoFile(file);
   const maxBytes = isVideo ? 20 * 1024 * 1024 : 5 * 1024 * 1024;
   if (file.size > maxBytes) {
     showToast(isVideo ? '视频大小不能超过 20MB' : '图片大小不能超过 5MB', 'error');
