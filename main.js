@@ -1328,7 +1328,14 @@ async function uploadFileForMessage(file) {
   });
 
   if (!response.ok) {
-    throw new Error('上传失败');
+    let detail = '上传失败';
+    try {
+      const text = await response.text();
+      if (text) detail = text;
+    } catch (_) {
+      // ignore
+    }
+    throw new Error(detail);
   }
 
   const data = await response.json();
@@ -1358,7 +1365,8 @@ async function uploadAndSendImages(images, captionText = '') {
     cancelReply();
   } catch (error) {
     console.error('上传失败:', error);
-    showToast('上传失败', 'error');
+    const msg = error && error.message ? error.message : '上传失败';
+    showToast(msg, 'error');
   }
 }
 
@@ -1440,7 +1448,13 @@ async function compressImage(file) {
         ctx.drawImage(img, 0, 0, width, height);
 
         canvas.toBlob((blob) => {
-          resolve(new File([blob], file.name, { type: 'image/jpeg' }));
+          const allowedExt = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+          const name = (file && file.name) ? String(file.name) : '';
+          const ext = name.lastIndexOf('.') >= 0 ? name.slice(name.lastIndexOf('.')).toLowerCase() : '';
+          const safeName = allowedExt.includes(ext)
+            ? name
+            : `image-${Date.now()}.jpg`;
+          resolve(new File([blob], safeName, { type: 'image/jpeg' }));
         }, 'image/jpeg', 0.8);
       };
       img.src = e.target.result;
