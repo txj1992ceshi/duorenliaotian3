@@ -2404,3 +2404,12 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
+
+// 注册 Service Worker（PWA）
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch((err) => {
+      console.warn('Service Worker 注册失败:', err);
+    });
+  });
+}
